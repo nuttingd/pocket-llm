@@ -74,7 +74,9 @@ app/src/main/java/dev/nutting/pocketllm/
 │   │       ├── CompactionSummaryEntity.kt
 │   │       ├── ParameterPresetEntity.kt
 │   │       ├── ToolDefinitionEntity.kt
-│   │       └── ConversationToolEnabledEntity.kt
+│   │       ├── ConversationToolEnabledEntity.kt
+│   │       ├── MessageFts.kt
+│   │       └── SearchResult.kt
 │   ├── remote/
 │   │   ├── OpenAiApiClient.kt
 │   │   └── model/
@@ -109,7 +111,8 @@ app/src/main/java/dev/nutting/pocketllm/
 │   │   ├── MessageInput.kt
 │   │   ├── ThinkingSection.kt
 │   │   ├── ToolCallCard.kt
-│   │   └── BranchNavigator.kt
+│   │   ├── CompactionIndicator.kt
+│   │   └── ConversationSettingsSheet.kt
 │   ├── conversations/
 │   │   ├── ConversationListScreen.kt
 │   │   ├── ConversationListViewModel.kt
