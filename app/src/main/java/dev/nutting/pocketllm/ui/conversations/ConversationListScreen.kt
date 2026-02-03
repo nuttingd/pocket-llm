@@ -13,8 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -35,6 +37,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.nutting.pocketllm.data.local.entity.SearchResult
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -57,37 +60,81 @@ fun ConversationListDrawerContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Conversations", style = MaterialTheme.typography.titleMedium)
-            IconButton(
-                onClick = onNewChat,
-                modifier = Modifier.semantics { contentDescription = "New chat" },
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
+            Row {
+                IconButton(
+                    onClick = { viewModel.toggleSearch() },
+                    modifier = Modifier.semantics { contentDescription = "Search conversations" },
+                ) {
+                    Icon(
+                        if (state.isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                        contentDescription = null,
+                    )
+                }
+                IconButton(
+                    onClick = onNewChat,
+                    modifier = Modifier.semantics { contentDescription = "New chat" },
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                }
             }
+        }
+
+        if (state.isSearchActive) {
+            OutlinedTextField(
+                value = state.searchQuery,
+                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                placeholder = { Text("Search messages...") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .semantics { contentDescription = "Search conversations and messages" },
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (state.conversations.isEmpty()) {
-            Text(
-                "No conversations yet",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 16.dp),
-            )
-        }
-
-        LazyColumn {
-            items(state.conversations, key = { it.id }) { conversation ->
-                ConversationItem(
-                    conversation = conversation,
-                    onClick = { onConversationSelected(conversation.id) },
-                    onRename = {
-                        renamingId = conversation.id
-                        renameText = conversation.title
-                    },
-                    onDelete = { viewModel.deleteConversation(conversation.id) },
+        if (state.isSearchActive && state.searchQuery.isNotBlank()) {
+            if (state.searchResults.isEmpty()) {
+                Text(
+                    "No results found",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 16.dp),
                 )
-                HorizontalDivider()
+            }
+            LazyColumn {
+                items(state.searchResults, key = { "${it.conversationId}:${it.messageId}" }) { result ->
+                    SearchResultItem(
+                        result = result,
+                        onClick = { onConversationSelected(result.conversationId) },
+                    )
+                    HorizontalDivider()
+                }
+            }
+        } else {
+            if (state.conversations.isEmpty()) {
+                Text(
+                    "No conversations yet",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                )
+            }
+
+            LazyColumn {
+                items(state.conversations, key = { it.id }) { conversation ->
+                    ConversationItem(
+                        conversation = conversation,
+                        onClick = { onConversationSelected(conversation.id) },
+                        onRename = {
+                            renamingId = conversation.id
+                            renameText = conversation.title
+                        },
+                        onDelete = { viewModel.deleteConversation(conversation.id) },
+                    )
+                    HorizontalDivider()
+                }
             }
         }
     }
@@ -170,5 +217,46 @@ private fun ConversationItem(
         ) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
         }
+    }
+}
+
+@Composable
+private fun SearchResultItem(
+    result: SearchResult,
+    onClick: () -> Unit,
+) {
+    val dateFormat = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp)
+            .semantics { contentDescription = "Search result in ${result.conversationTitle}" },
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                result.conversationTitle,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                dateFormat.format(Date(result.createdAt)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            result.snippet,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

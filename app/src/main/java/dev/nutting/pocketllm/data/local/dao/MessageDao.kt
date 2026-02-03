@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
+import dev.nutting.pocketllm.data.local.entity.SearchResult
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -51,4 +52,32 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
     fun getAllByConversation(conversationId: String): Flow<List<MessageEntity>>
+
+    @Query(
+        """
+        SELECT m.id AS messageId, m.conversationId, c.title AS conversationTitle,
+               m.role, SUBSTR(m.content, 1, 120) AS snippet, m.createdAt
+        FROM message_fts fts
+        JOIN messages m ON m.rowid = fts.rowid
+        JOIN conversations c ON c.id = m.conversationId
+        WHERE message_fts MATCH :query
+        ORDER BY m.createdAt DESC
+        LIMIT 50
+        """
+    )
+    fun searchMessages(query: String): Flow<List<SearchResult>>
+
+    @Query(
+        """
+        SELECT m.id AS messageId, m.conversationId, c.title AS conversationTitle,
+               m.role, SUBSTR(m.content, 1, 120) AS snippet, m.createdAt
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversationId
+        WHERE c.title LIKE '%' || :query || '%'
+        GROUP BY m.conversationId
+        ORDER BY m.createdAt DESC
+        LIMIT 50
+        """
+    )
+    fun searchConversationTitles(query: String): Flow<List<SearchResult>>
 }

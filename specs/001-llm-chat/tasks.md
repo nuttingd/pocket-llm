@@ -297,9 +297,9 @@
 
 ### Implementation
 
-- [ ] T086 [US9] Add FTS virtual table for message content in `PocketLlmDatabase.kt` — Room `@Fts4` entity or raw SQL for `message_fts` table with content sync triggers. Migration to next version.
-- [ ] T087 [US9] Add search query methods to `MessageDao.kt` — `searchMessages(query: String): Flow<List<SearchResult>>` using FTS, join with Conversation for title matching
-- [ ] T088 [US9] Add search UI to `ConversationListScreen.kt` — M3 `SearchBar` at top of drawer, search results displayed as list items with conversation title, matching message snippet, and timestamp. Tapping navigates to conversation at matching message position (FR-024)
+- [X] T086 [US9] Add FTS virtual table for message content in `PocketLlmDatabase.kt` — Room `@Fts4` entity or raw SQL for `message_fts` table with content sync triggers. Migration to next version.
+- [X] T087 [US9] Add search query methods to `MessageDao.kt` — `searchMessages(query: String): Flow<List<SearchResult>>` using FTS, join with Conversation for title matching
+- [X] T088 [US9] Add search UI to `ConversationListScreen.kt` — M3 `SearchBar` at top of drawer, search results displayed as list items with conversation title, matching message snippet, and timestamp. Tapping navigates to conversation at matching message position (FR-024)
 
 **Checkpoint**: Search works across titles and message content with navigation to results.
 

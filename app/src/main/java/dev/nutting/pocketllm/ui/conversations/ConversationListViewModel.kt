@@ -6,6 +6,7 @@ import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +23,8 @@ class ConversationListViewModel(
 
     private val _uiState = MutableStateFlow(ConversationListUiState())
     val uiState: StateFlow<ConversationListUiState> = _uiState.asStateFlow()
+
+    private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -70,5 +73,31 @@ class ConversationListViewModel(
         viewModelScope.launch {
             conversationRepository.delete(id)
         }
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _uiState.update { it.copy(searchResults = emptyList()) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            messageRepository.search(query).collect { results ->
+                _uiState.update { it.copy(searchResults = results) }
+            }
+        }
+    }
+
+    fun toggleSearch() {
+        val active = !_uiState.value.isSearchActive
+        _uiState.update {
+            it.copy(
+                isSearchActive = active,
+                searchQuery = if (active) it.searchQuery else "",
+                searchResults = if (active) it.searchResults else emptyList(),
+            )
+        }
+        if (!active) searchJob?.cancel()
     }
 }

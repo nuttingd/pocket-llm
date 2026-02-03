@@ -13,6 +13,7 @@ import dev.nutting.pocketllm.data.local.dao.ServerProfileDao
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
+import dev.nutting.pocketllm.data.local.entity.MessageFts
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 
 @Database(
@@ -21,8 +22,9 @@ import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
         ConversationEntity::class,
         MessageEntity::class,
         CompactionSummaryEntity::class,
+        MessageFts::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class PocketLlmDatabase : RoomDatabase() {
@@ -49,13 +51,34 @@ abstract class PocketLlmDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`, tokenizer=unicode61)"
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE BEFORE UPDATE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_DELETE BEFORE DELETE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_AFTER_UPDATE AFTER UPDATE ON `messages` BEGIN INSERT INTO `message_fts`(`docid`, `content`) VALUES (NEW.`rowid`, NEW.`content`); END"""
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_AFTER_INSERT AFTER INSERT ON `messages` BEGIN INSERT INTO `message_fts`(`docid`, `content`) VALUES (NEW.`rowid`, NEW.`content`); END"""
+                )
+                db.execSQL("INSERT INTO `message_fts`(`message_fts`) VALUES ('rebuild')")
+            }
+        }
+
         fun create(context: Context): PocketLlmDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 PocketLlmDatabase::class.java,
                 "pocket_llm.db",
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

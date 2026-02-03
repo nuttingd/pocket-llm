@@ -2,7 +2,9 @@ package dev.nutting.pocketllm.data.repository
 
 import dev.nutting.pocketllm.data.local.dao.MessageDao
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
+import dev.nutting.pocketllm.data.local.entity.SearchResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 class MessageRepository(
     private val dao: MessageDao,
@@ -31,4 +33,17 @@ class MessageRepository(
 
     fun getAllByConversation(conversationId: String): Flow<List<MessageEntity>> =
         dao.getAllByConversation(conversationId)
+
+    fun search(query: String): Flow<List<SearchResult>> {
+        val ftsQuery = query.trim().split("\\s+".toRegex()).joinToString(" ") { "$it*" }
+        return combine(
+            dao.searchMessages(ftsQuery),
+            dao.searchConversationTitles(query.trim()),
+        ) { messageResults, titleResults ->
+            (titleResults + messageResults)
+                .distinctBy { "${it.conversationId}:${it.messageId}" }
+                .sortedByDescending { it.createdAt }
+                .take(50)
+        }
+    }
 }
