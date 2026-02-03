@@ -1,6 +1,7 @@
 package dev.nutting.pocketllm.ui.chat
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -12,42 +13,62 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.nutting.pocketllm.ui.conversations.ConversationListDrawerContent
+import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
+    conversationListViewModel: ConversationListViewModel,
     onNavigateToServers: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onConversationSelected: (String?) -> Unit,
     conversationId: String?,
 ) {
     val state by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
-    // Auto-scroll when new messages arrive or during streaming
     LaunchedEffect(state.messages.size, state.currentStreamingContent) {
         val totalItems = state.messages.size + if (state.isStreaming) 1 else 0
         if (totalItems > 0) {
@@ -62,60 +83,174 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(state.conversationTitle) },
-                actions = {
-                    IconButton(
-                        onClick = onNavigateToServers,
-                        modifier = Modifier.semantics { contentDescription = "Server settings" },
-                    ) {
-                        Icon(Icons.Default.Menu, contentDescription = null)
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            MessageInput(
-                isStreaming = state.isStreaming,
-                onSendMessage = viewModel::sendMessage,
-                onStopGeneration = viewModel::stopGeneration,
-                modifier = Modifier
-                    .imePadding()
-                    .windowInsetsPadding(WindowInsets.navigationBars),
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { padding ->
-        if (state.messages.isEmpty() && !state.isStreaming) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "Start a conversation",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    if (state.showConversationSettings) {
+        ConversationSettingsSheet(
+            params = state.conversationParams,
+            defaults = state.defaultParams,
+            onParamsChanged = viewModel::updateConversationParams,
+            onResetToDefaults = viewModel::resetConversationParamsToDefaults,
+            onDismiss = viewModel::dismissConversationSettings,
+        )
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                ConversationListDrawerContent(
+                    viewModel = conversationListViewModel,
+                    onConversationSelected = { id ->
+                        scope.launch { drawerState.close() }
+                        onConversationSelected(id)
+                    },
+                    onNewChat = {
+                        scope.launch { drawerState.close() }
+                        onConversationSelected(null)
+                    },
                 )
             }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
-                items(state.messages, key = { it.id }) { message ->
-                    MessageBubble(message = message)
+        },
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(
+                            onClick = { scope.launch { drawerState.open() } },
+                            modifier = Modifier.semantics { contentDescription = "Open conversations" },
+                        ) {
+                            Icon(Icons.Default.Menu, contentDescription = null)
+                        }
+                    },
+                    title = {
+                        Column {
+                            Text(
+                                state.conversationTitle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            ServerModelSelector(
+                                state = state,
+                                onSwitchServer = viewModel::switchServer,
+                                onSwitchModel = viewModel::switchModel,
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = viewModel::toggleConversationSettings,
+                            modifier = Modifier.semantics { contentDescription = "Conversation parameters" },
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null)
+                        }
+                        IconButton(
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.semantics { contentDescription = "Settings" },
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null)
+                        }
+                    },
+                )
+            },
+            bottomBar = {
+                MessageInput(
+                    isStreaming = state.isStreaming,
+                    onSendMessage = viewModel::sendMessage,
+                    onStopGeneration = viewModel::stopGeneration,
+                    modifier = Modifier
+                        .imePadding()
+                        .windowInsetsPadding(WindowInsets.navigationBars),
+                )
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+        ) { padding ->
+            if (state.messages.isEmpty() && !state.isStreaming) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Start a conversation",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
-                    item(key = "streaming") {
-                        StreamingMessageBubble(content = state.currentStreamingContent)
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                ) {
+                    items(state.messages, key = { it.id }) { message ->
+                        MessageBubble(message = message)
+                    }
+                    if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
+                        item(key = "streaming") {
+                            StreamingMessageBubble(content = state.currentStreamingContent)
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerModelSelector(
+    state: ChatUiState,
+    onSwitchServer: (String) -> Unit,
+    onSwitchModel: (String) -> Unit,
+) {
+    var showServerMenu by remember { mutableStateOf(false) }
+    var showModelMenu by remember { mutableStateOf(false) }
+
+    val serverName = state.selectedServer?.name ?: "No server"
+    val modelName = state.selectedModelId?.let { id ->
+        // Show short model name (after last /)
+        id.substringAfterLast("/").ifBlank { id }
+    } ?: "No model"
+
+    Box {
+        TextButton(
+            onClick = {
+                if (state.availableServers.size > 1) showServerMenu = true
+                else showModelMenu = true
+            },
+            modifier = Modifier.semantics { contentDescription = "Switch server or model" },
+        ) {
+            Text(
+                "$serverName · $modelName",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        DropdownMenu(expanded = showServerMenu, onDismissRequest = { showServerMenu = false }) {
+            state.availableServers.forEach { server ->
+                DropdownMenuItem(
+                    text = { Text(server.name) },
+                    onClick = {
+                        showServerMenu = false
+                        onSwitchServer(server.id)
+                    },
+                )
+            }
+        }
+
+        DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
+            state.availableModels.forEach { model ->
+                DropdownMenuItem(
+                    text = { Text(model.id) },
+                    onClick = {
+                        showModelMenu = false
+                        onSwitchModel(model.id)
+                    },
+                )
             }
         }
     }
