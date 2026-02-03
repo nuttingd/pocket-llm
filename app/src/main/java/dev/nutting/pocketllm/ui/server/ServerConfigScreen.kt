@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -131,6 +133,7 @@ fun ServerConfigScreen(
                             onTest = { viewModel.validateAndFetchModels(server.id) },
                             isTesting = state.isTesting,
                             testResult = state.testResult,
+                            fetchedModels = state.models.map { it.id },
                         )
                     }
                 }
@@ -139,6 +142,7 @@ fun ServerConfigScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ServerCard(
     server: dev.nutting.pocketllm.data.local.entity.ServerProfileEntity,
@@ -147,6 +151,7 @@ private fun ServerCard(
     onTest: () -> Unit,
     isTesting: Boolean = false,
     testResult: String? = null,
+    fetchedModels: List<String> = emptyList(),
 ) {
     Card(
         modifier = Modifier
@@ -166,6 +171,24 @@ private fun ServerCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+            if (fetchedModels.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    fetchedModels.forEach { modelId ->
+                        AssistChip(
+                            onClick = {},
+                            label = {
+                                Text(
+                                    modelId.substringAfterLast("/").ifBlank { modelId },
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            },
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
