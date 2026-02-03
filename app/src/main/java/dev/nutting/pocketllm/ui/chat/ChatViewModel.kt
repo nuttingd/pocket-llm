@@ -287,6 +287,22 @@ class ChatViewModel(
         _uiState.update { it.copy(selectedModelId = modelId) }
     }
 
+    fun compactConversation() {
+        val state = _uiState.value
+        val conversationId = state.conversationId ?: return
+        val serverId = state.selectedServer?.id ?: return
+        val modelId = state.selectedModelId ?: return
+
+        viewModelScope.launch {
+            val summary = chatManager.compactConversation(conversationId, serverId, modelId)
+            if (summary != null) {
+                _uiState.update { it.copy(error = null) }
+            } else {
+                _uiState.update { it.copy(error = "Not enough messages to compact") }
+            }
+        }
+    }
+
     fun dismissError() {
         _uiState.update { it.copy(error = null) }
     }

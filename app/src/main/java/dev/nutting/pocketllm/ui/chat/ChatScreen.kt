@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -147,12 +148,10 @@ fun ChatScreen(
                         ) {
                             Icon(Icons.Default.Tune, contentDescription = null)
                         }
-                        IconButton(
-                            onClick = onNavigateToSettings,
-                            modifier = Modifier.semantics { contentDescription = "Settings" },
-                        ) {
-                            Icon(Icons.Default.Settings, contentDescription = null)
-                        }
+                        ChatOverflowMenu(
+                            onNavigateToSettings = onNavigateToSettings,
+                            onCompact = viewModel::compactConversation,
+                        )
                     },
                 )
             },
@@ -242,6 +241,39 @@ private fun ChatContent(
                     StreamingMessageBubble(content = state.currentStreamingContent)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ChatOverflowMenu(
+    onNavigateToSettings: () -> Unit,
+    onCompact: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.semantics { contentDescription = "More options" },
+        ) {
+            Icon(Icons.Default.MoreVert, contentDescription = null)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Compact conversation") },
+                onClick = {
+                    expanded = false
+                    onCompact()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Settings") },
+                onClick = {
+                    expanded = false
+                    onNavigateToSettings()
+                },
+            )
         }
     }
 }
