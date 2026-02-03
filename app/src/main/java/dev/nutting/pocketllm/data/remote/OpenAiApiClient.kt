@@ -8,6 +8,7 @@ import dev.nutting.pocketllm.data.remote.model.ModelsResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.sse.SSE
@@ -16,12 +17,31 @@ import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import java.net.ConnectException
+import java.net.UnknownHostException
+
+sealed class ApiException(message: String, cause: Throwable? = null) : Exception(message, cause) {
+    class NetworkUnavailable(cause: Throwable? = null) : ApiException("Network unavailable. Check your connection and try again.", cause)
+    class ConnectionRefused(val host: String, cause: Throwable? = null) : ApiException("Could not connect to $host. Verify the server is running.", cause)
+    class Unauthorized : ApiException("Authentication failed. Check your API key.")
+    class RateLimited(val retryAfterSeconds: Long?) : ApiException(
+        if (retryAfterSeconds != null) "Rate limited. Retrying in ${retryAfterSeconds}s..."
+        else "Rate limited by server. Try again shortly."
+    )
+    class ContextLengthExceeded : ApiException("Context length exceeded. Try compacting the conversation or starting a new one.")
+    class ServerError(val statusCode: Int, detail: String?) : ApiException("Server error ($statusCode)${detail?.let { ": $it" } ?: ". Try again later."}")
+    class RequestTimeout(cause: Throwable? = null) : ApiException("Request timed out. The server may be busy — try again or increase the timeout.", cause)
+    class EmptyResponse : ApiException("No response generated. Try again or rephrase your message.")
+    class StreamDisconnected(val partialContent: String) : ApiException("Connection lost during response. Partial response preserved.")
+}
 
 class OpenAiApiClient {
 
@@ -29,6 +49,11 @@ class OpenAiApiClient {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
+    }
+
+    companion object {
+        private const val MAX_RETRIES = 3
+        private const val INITIAL_BACKOFF_MS = 1000L
     }
 
     private fun createClient(timeoutSeconds: Long): HttpClient = HttpClient(OkHttp) {
@@ -42,6 +67,45 @@ class OpenAiApiClient {
         }
     }
 
+    private suspend fun <T> withRetry(block: suspend () -> T): T {
+        var lastException: Exception? = null
+        for (attempt in 0 until MAX_RETRIES) {
+            try {
+                return block()
+            } catch (e: ApiException.RateLimited) {
+                lastException = e
+                val waitMs = (e.retryAfterSeconds?.times(1000))
+                    ?: (INITIAL_BACKOFF_MS * (1L shl attempt))
+                delay(waitMs.coerceAtMost(30_000))
+            } catch (e: ApiException.ServerError) {
+                if (e.statusCode in listOf(502, 503, 504) && attempt < MAX_RETRIES - 1) {
+                    lastException = e
+                    delay(INITIAL_BACKOFF_MS * (1L shl attempt))
+                } else {
+                    throw e
+                }
+            }
+        }
+        throw lastException!!
+    }
+
+    private fun mapException(e: Throwable): ApiException = when (e) {
+        is ApiException -> e
+        is HttpRequestTimeoutException -> ApiException.RequestTimeout(e)
+        is UnknownHostException -> ApiException.NetworkUnavailable(e)
+        is ConnectException -> ApiException.ConnectionRefused(e.message ?: "unknown host", e)
+        is java.net.SocketTimeoutException -> ApiException.RequestTimeout(e)
+        else -> {
+            val msg = e.message ?: ""
+            when {
+                msg.contains("Unable to resolve host", ignoreCase = true) -> ApiException.NetworkUnavailable(e)
+                msg.contains("Connection refused", ignoreCase = true) -> ApiException.ConnectionRefused("server", e)
+                msg.contains("timeout", ignoreCase = true) -> ApiException.RequestTimeout(e)
+                else -> throw e
+            }
+        }
+    }
+
     suspend fun fetchModels(
         baseUrl: String,
         apiKey: String?,
@@ -49,10 +113,25 @@ class OpenAiApiClient {
     ): List<ModelInfo> {
         val client = createClient(timeoutSeconds)
         return try {
-            val response: ModelsResponse = client.get("${baseUrl.trimEnd('/')}/v1/models") {
-                apiKey?.let { headers { append("Authorization", "Bearer $it") } }
-            }.body()
-            response.data
+            withRetry {
+                val response = client.get("${baseUrl.trimEnd('/')}/v1/models") {
+                    apiKey?.let { headers { append("Authorization", "Bearer $it") } }
+                }
+                when (response.status.value) {
+                    in 200..299 -> response.body<ModelsResponse>().data
+                    401 -> throw ApiException.Unauthorized()
+                    429 -> {
+                        val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
+                        throw ApiException.RateLimited(retryAfter)
+                    }
+                    in 500..599 -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+                    else -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+                }
+            }
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw mapException(e)
         } finally {
             client.close()
         }
@@ -66,11 +145,40 @@ class OpenAiApiClient {
     ): ChatCompletionResponse {
         val client = createClient(timeoutSeconds)
         return try {
-            client.post("${baseUrl.trimEnd('/')}/v1/chat/completions") {
-                contentType(ContentType.Application.Json)
-                apiKey?.let { headers { append("Authorization", "Bearer $it") } }
-                setBody(request.copy(stream = false))
-            }.body()
+            withRetry {
+                val response = client.post("${baseUrl.trimEnd('/')}/v1/chat/completions") {
+                    contentType(ContentType.Application.Json)
+                    apiKey?.let { headers { append("Authorization", "Bearer $it") } }
+                    setBody(request.copy(stream = false))
+                }
+                when (response.status.value) {
+                    in 200..299 -> {
+                        val result = response.body<ChatCompletionResponse>()
+                        if (result.choices.isEmpty() || result.choices.first().message.content.isNullOrBlank()) {
+                            throw ApiException.EmptyResponse()
+                        }
+                        result
+                    }
+                    401 -> throw ApiException.Unauthorized()
+                    429 -> {
+                        val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
+                        throw ApiException.RateLimited(retryAfter)
+                    }
+                    400 -> {
+                        val body = response.bodyAsText()
+                        if (body.contains("context length", ignoreCase = true) || body.contains("maximum context", ignoreCase = true)) {
+                            throw ApiException.ContextLengthExceeded()
+                        }
+                        throw ApiException.ServerError(400, body.take(200))
+                    }
+                    in 500..599 -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+                    else -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+                }
+            }
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw mapException(e)
         } finally {
             client.close()
         }
@@ -100,6 +208,10 @@ class OpenAiApiClient {
                     emit(chunk)
                 }
             }
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw mapException(e)
         } finally {
             client.close()
         }

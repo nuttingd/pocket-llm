@@ -6,6 +6,7 @@ import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
+import dev.nutting.pocketllm.data.remote.ApiException
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
@@ -118,7 +119,7 @@ class ChatViewModel(
             val serverId = settingsRepository.getLastActiveServerId().first()
             if (serverId.isBlank()) return@launch
             val server = serverRepository.getById(serverId).first() ?: return@launch
-            _uiState.update { it.copy(selectedServer = server) }
+            _uiState.update { it.copy(selectedServer = server, isLoadingModels = true) }
 
             try {
                 val models = serverRepository.fetchModels(serverId)
@@ -126,10 +127,13 @@ class ChatViewModel(
                     it.copy(
                         availableModels = models,
                         selectedModelId = it.selectedModelId ?: models.firstOrNull()?.id,
+                        isLoadingModels = false,
                     )
                 }
+            } catch (e: ApiException) {
+                _uiState.update { it.copy(error = e.message, isLoadingModels = false) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Failed to load models: ${e.message}") }
+                _uiState.update { it.copy(error = "Failed to load models: ${e.message}", isLoadingModels = false) }
             }
         }
     }
@@ -384,15 +388,17 @@ class ChatViewModel(
     fun switchServer(serverId: String) {
         viewModelScope.launch {
             val server = serverRepository.getById(serverId).first() ?: return@launch
-            _uiState.update { it.copy(selectedServer = server, availableModels = emptyList(), selectedModelId = null) }
+            _uiState.update { it.copy(selectedServer = server, availableModels = emptyList(), selectedModelId = null, isLoadingModels = true) }
             settingsRepository.setLastActiveServerId(serverId)
             try {
                 val models = serverRepository.fetchModels(serverId)
                 _uiState.update {
-                    it.copy(availableModels = models, selectedModelId = models.firstOrNull()?.id)
+                    it.copy(availableModels = models, selectedModelId = models.firstOrNull()?.id, isLoadingModels = false)
                 }
+            } catch (e: ApiException) {
+                _uiState.update { it.copy(error = e.message, isLoadingModels = false) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Failed to load models: ${e.message}") }
+                _uiState.update { it.copy(error = "Failed to load models: ${e.message}", isLoadingModels = false) }
             }
         }
     }

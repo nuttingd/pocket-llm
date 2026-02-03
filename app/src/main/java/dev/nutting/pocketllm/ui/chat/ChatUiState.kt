@@ -17,6 +17,7 @@ data class ChatUiState(
     val availableModels: List<ModelInfo> = emptyList(),
     val availableServers: List<ServerProfileEntity> = emptyList(),
     val error: String? = null,
+    val isLoadingModels: Boolean = false,
     val conversationId: String? = null,
     val conversationTitle: String = "New Chat",
     val conversationParams: ConversationParameters = ConversationParameters(),

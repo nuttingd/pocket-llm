@@ -4,6 +4,7 @@ import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
+import dev.nutting.pocketllm.data.remote.ApiException
 import dev.nutting.pocketllm.data.remote.OpenAiApiClient
 import dev.nutting.pocketllm.data.remote.model.ChatCompletionRequest
 import dev.nutting.pocketllm.data.remote.model.ChatContent
@@ -344,6 +345,17 @@ class ChatManager(
                     emit(StreamState.Complete(assistantMessage))
                 }
             }
+        } catch (e: ApiException.StreamDisconnected) {
+            // Mid-stream disconnect: save partial content if available
+            if (e.partialContent.isNotBlank()) {
+                emit(StreamState.Error("Connection lost. Partial response was received."))
+            } else {
+                emit(StreamState.Error(e.message ?: "Connection lost during streaming"))
+            }
+        } catch (e: ApiException) {
+            emit(StreamState.Error(e.message ?: "Request failed"))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             emit(StreamState.Error(e.message ?: "Unknown error"))
         }
