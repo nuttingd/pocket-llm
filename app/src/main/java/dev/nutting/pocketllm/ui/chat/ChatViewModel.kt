@@ -72,7 +72,7 @@ class ChatViewModel(
         chatManager.toolApprovalCallback = { toolCalls ->
             val deferred = CompletableDeferred<Boolean>()
             toolApprovalDeferred = deferred
-            _uiState.update { it.copy(pendingToolCalls = toolCalls) }
+            _uiState.update { it.copy(pendingToolCalls = toolCalls, toolCallResults = emptyMap()) }
             deferred.await()
         }
     }
@@ -421,7 +421,7 @@ class ChatViewModel(
                     is StreamState.ToolCallResult -> {
                         _uiState.update {
                             it.copy(
-                                toolCallResults = it.toolCallResults + (streamState.toolName to streamState.result),
+                                toolCallResults = it.toolCallResults + (streamState.toolCallId to streamState.result),
                                 currentStreamingContent = "",
                             )
                         }
@@ -513,7 +513,7 @@ class ChatViewModel(
                     }
                     is StreamState.ToolCallResult -> {
                         _uiState.update {
-                            it.copy(toolCallResults = it.toolCallResults + (streamState.toolName to streamState.result))
+                            it.copy(toolCallResults = it.toolCallResults + (streamState.toolCallId to streamState.result))
                         }
                     }
                 }

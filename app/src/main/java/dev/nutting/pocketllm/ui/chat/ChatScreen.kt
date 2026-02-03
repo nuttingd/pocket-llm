@@ -323,7 +323,7 @@ private fun ChatContent(
                 items(state.pendingToolCalls, key = { it.id }) { toolCall ->
                     ToolCallCard(
                         toolCall = toolCall,
-                        status = state.toolCallResults[toolCall.function.name]?.let {
+                        status = state.toolCallResults[toolCall.id]?.let {
                             ToolCallStatus.Complete(it)
                         } ?: ToolCallStatus.Pending,
                         onApprove = onApproveToolCalls,

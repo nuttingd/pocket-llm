@@ -35,7 +35,7 @@ sealed interface StreamState {
     data class Complete(val message: MessageEntity) : StreamState
     data class Error(val error: String) : StreamState
     data class ToolCallsPending(val toolCalls: List<ToolCall>) : StreamState
-    data class ToolCallResult(val toolName: String, val result: String) : StreamState
+    data class ToolCallResult(val toolCallId: String, val toolName: String, val result: String) : StreamState
 }
 
 class ChatManager(
@@ -286,7 +286,7 @@ class ChatManager(
 
                         for (tc in resolvedToolCalls) {
                             val result = ToolExecutor.execute(tc.function.name, tc.function.arguments)
-                            emit(StreamState.ToolCallResult(tc.function.name, result))
+                            emit(StreamState.ToolCallResult(tc.id, tc.function.name, result))
 
                             val toolMsg = MessageEntity(
                                 id = UUID.randomUUID().toString(),
