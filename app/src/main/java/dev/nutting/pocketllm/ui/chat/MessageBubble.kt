@@ -1,7 +1,10 @@
 package dev.nutting.pocketllm.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,6 +12,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -61,11 +68,51 @@ fun MessageBubble(
                     contentDescription = "${if (isUser) "You" else "Assistant"}: ${message.content}"
                 },
         ) {
-            Text(
-                text = message.content,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                if (!isUser && message.totalTokens != null) {
+                    TokenUsageFooter(message = message)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TokenUsageFooter(message: MessageEntity) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Text(
+            text = "${message.totalTokens} tokens",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clickable { expanded = !expanded }
+                .padding(vertical = 2.dp),
+        )
+        AnimatedVisibility(visible = expanded) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                message.promptTokens?.let {
+                    Text(
+                        "Prompt: $it",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                message.completionTokens?.let {
+                    Text(
+                        "Completion: $it",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
