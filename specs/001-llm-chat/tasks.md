@@ -315,8 +315,8 @@
 
 ### Implementation
 
-- [ ] T089 [US10] Add export function to `ConversationRepository.kt` — `exportAsMarkdown(conversationId): String` builds markdown from active branch messages (role headers, content, timestamps)
-- [ ] T090 [US10] Add export/share actions to `ChatScreen.kt` TopAppBar overflow menu — "Export as Markdown" saves to Downloads via `MediaStore`, "Share Conversation" and "Share Message" open Android `ShareSheet` with `Intent.ACTION_SEND` (FR-060, FR-061)
+- [X] T089 [US10] Add export function to `ConversationRepository.kt` — `exportAsMarkdown(conversationId): String` builds markdown from active branch messages (role headers, content, timestamps)
+- [X] T090 [US10] Add export/share actions to `ChatScreen.kt` TopAppBar overflow menu — "Export as Markdown" saves to Downloads via `MediaStore`, "Share Conversation" and "Share Message" open Android `ShareSheet` with `Intent.ACTION_SEND` (FR-060, FR-061)
 
 **Checkpoint**: Export and sharing functional.
 
@@ -332,9 +332,9 @@
 
 ### Implementation
 
-- [ ] T091 [US11] Add appearance section to `SettingsScreen.kt` — theme mode picker (Light/Dark/System) using M3 `SegmentedButton`, message font size slider (12-24sp), dynamic color toggle (FR-070, FR-071, FR-072)
-- [ ] T092 [US11] Update `PocketLlmTheme` in `Theme.kt` to read theme mode from `SettingsRepository` and apply, wire dynamic color toggle
-- [ ] T093 [US11] Update `MessageBubble.kt` to read `message_font_size_sp` from `SettingsRepository` and apply to message text `fontSize`
+- [X] T091 [US11] Add appearance section to `SettingsScreen.kt` — theme mode picker (Light/Dark/System) using M3 `SegmentedButton`, message font size slider (12-24sp), dynamic color toggle (FR-070, FR-071, FR-072)
+- [X] T092 [US11] Update `PocketLlmTheme` in `Theme.kt` to read theme mode from `SettingsRepository` and apply, wire dynamic color toggle
+- [X] T093 [US11] Update `MessageBubble.kt` to read `message_font_size_sp` from `SettingsRepository` and apply to message text `fontSize`
 
 **Checkpoint**: Theme and font customization works.
 
