@@ -66,6 +66,7 @@ fun AppNavGraph(
                     settingsRepository = container.settingsRepository,
                     toolDefinitionDao = container.toolDefinitionDao,
                     parameterPresetDao = container.parameterPresetDao,
+                    compactionSummaryDao = container.compactionSummaryDao,
                 )
             }
             ChatScreen(
@@ -98,6 +99,7 @@ fun AppNavGraph(
                     settingsRepository = container.settingsRepository,
                     toolDefinitionDao = container.toolDefinitionDao,
                     parameterPresetDao = container.parameterPresetDao,
+                    compactionSummaryDao = container.compactionSummaryDao,
                 )
             }
             ChatScreen(

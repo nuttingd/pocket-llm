@@ -38,13 +38,14 @@ class AppContainer(context: Context) {
 
     val toolDefinitionDao = database.toolDefinitionDao()
     val parameterPresetDao = database.parameterPresetDao()
+    val compactionSummaryDao = database.compactionSummaryDao()
 
     val chatManager = ChatManager(
         serverRepository = serverRepository,
         conversationRepository = conversationRepository,
         messageRepository = messageRepository,
         apiClient = apiClient,
-        compactionSummaryDao = database.compactionSummaryDao(),
+        compactionSummaryDao = compactionSummaryDao,
         toolDefinitionDao = toolDefinitionDao,
     )
 }

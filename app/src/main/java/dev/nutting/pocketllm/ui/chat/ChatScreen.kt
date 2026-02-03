@@ -282,11 +282,16 @@ private fun ChatContent(
             )
         }
     } else {
+        val compactionBeforeMessage = state.compactionSummaries.associateBy { it.insertedBeforeMessageId }
+
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxSize(),
         ) {
             items(state.messages, key = { it.id }) { message ->
+                compactionBeforeMessage[message.id]?.let { summary ->
+                    CompactionIndicator(summary = summary)
+                }
                 MessageBubble(
                     message = message,
                     fontSizeSp = state.messageFontSizeSp,

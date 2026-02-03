@@ -8,6 +8,7 @@ import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.remote.ApiException
 import dev.nutting.pocketllm.data.repository.ServerRepository
+import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
 import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import android.content.Context
@@ -37,6 +38,7 @@ class ChatViewModel(
     private val settingsRepository: SettingsRepository,
     private val toolDefinitionDao: ToolDefinitionDao? = null,
     private val parameterPresetDao: ParameterPresetDao? = null,
+    private val compactionSummaryDao: CompactionSummaryDao? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -164,6 +166,11 @@ class ChatViewModel(
                         }
                     }
                 }
+            }
+        }
+        viewModelScope.launch {
+            compactionSummaryDao?.getByConversationId(conversationId)?.collect { summaries ->
+                _uiState.update { it.copy(compactionSummaries = summaries) }
             }
         }
     }

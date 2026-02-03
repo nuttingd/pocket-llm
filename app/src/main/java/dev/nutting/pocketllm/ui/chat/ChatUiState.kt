@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.ui.chat
 
+import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
@@ -31,4 +32,5 @@ data class ChatUiState(
     val presets: List<ParameterPresetEntity> = emptyList(),
     val messageFontSizeSp: Int = 16,
     val editingMessage: MessageEntity? = null,
+    val compactionSummaries: List<CompactionSummaryEntity> = emptyList(),
 )
