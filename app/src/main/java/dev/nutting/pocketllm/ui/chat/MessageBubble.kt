@@ -44,10 +44,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.rememberAsyncImagePainter
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.sp
+import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
+import com.mikepenz.markdown.compose.elements.highlightedCodeFence
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.compose.components.markdownComponents
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -139,12 +143,25 @@ fun MessageBubble(
                         )
                     }
                 } else {
+                    val isDark = isSystemInDarkTheme()
+                    val codeBackground = if (isDark) {
+                        MaterialTheme.colorScheme.surface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                    }
                     Markdown(
                         content = message.content,
-                        colors = markdownColor(),
+                        colors = markdownColor(
+                            text = contentColor,
+                            codeBackground = codeBackground,
+                        ),
                         typography = markdownTypography(
                             text = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSizeSp.sp),
                             paragraph = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSizeSp.sp),
+                        ),
+                        components = markdownComponents(
+                            codeBlock = highlightedCodeBlock,
+                            codeFence = highlightedCodeFence,
                         ),
                     )
                 }
