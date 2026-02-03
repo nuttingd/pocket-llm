@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -351,10 +353,13 @@ private fun ServerModelSelector(
     var showModelMenu by remember { mutableStateOf(false) }
 
     val serverName = state.selectedServer?.name ?: "No server"
-    val modelName = state.selectedModelId?.let { id ->
-        // Show short model name (after last /)
-        id.substringAfterLast("/").ifBlank { id }
-    } ?: "No model"
+    val modelName = if (state.isLoadingModels) {
+        "Loading..."
+    } else {
+        state.selectedModelId?.let { id ->
+            id.substringAfterLast("/").ifBlank { id }
+        } ?: "No model"
+    }
 
     Box {
         TextButton(
@@ -364,6 +369,12 @@ private fun ServerModelSelector(
             },
             modifier = Modifier.semantics { contentDescription = "Switch server or model" },
         ) {
+            if (state.isLoadingModels) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp).padding(end = 4.dp),
+                    strokeWidth = 1.5.dp,
+                )
+            }
             Text(
                 "$serverName · $modelName",
                 style = MaterialTheme.typography.labelSmall,

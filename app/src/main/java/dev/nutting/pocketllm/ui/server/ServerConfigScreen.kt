@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -128,6 +129,8 @@ fun ServerConfigScreen(
                             onEdit = { viewModel.startEditServer(server) },
                             onDelete = { viewModel.deleteServer(server.id) },
                             onTest = { viewModel.validateAndFetchModels(server.id) },
+                            isTesting = state.isTesting,
+                            testResult = state.testResult,
                         )
                     }
                 }
@@ -142,6 +145,8 @@ private fun ServerCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onTest: () -> Unit,
+    isTesting: Boolean = false,
+    testResult: String? = null,
 ) {
     Card(
         modifier = Modifier
@@ -154,9 +159,25 @@ private fun ServerCard(
             if (server.hasApiKey) {
                 Text("API key configured", style = MaterialTheme.typography.bodySmall)
             }
+            testResult?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
-            Row {
-                TextButton(onClick = onTest) { Text("Test") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onTest, enabled = !isTesting) {
+                    if (isTesting) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Testing...")
+                    } else {
+                        Text("Test")
+                    }
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 IconButton(
                     onClick = onEdit,

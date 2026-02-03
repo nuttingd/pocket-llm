@@ -106,14 +106,20 @@ class ServerConfigViewModel(
 
     fun validateAndFetchModels(serverId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isTesting = true, error = null, testResult = null) }
             val result = serverRepository.validateConnection(serverId)
             result.fold(
                 onSuccess = { models ->
-                    _uiState.update { it.copy(models = models, isLoading = false) }
+                    _uiState.update {
+                        it.copy(
+                            models = models,
+                            isTesting = false,
+                            testResult = "Connected — ${models.size} model(s) available",
+                        )
+                    }
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(error = e.message, isLoading = false) }
+                    _uiState.update { it.copy(error = e.message, isTesting = false) }
                 },
             )
         }

@@ -9,6 +9,8 @@ data class ServerConfigUiState(
     val models: List<ModelInfo> = emptyList(),
     val selectedModelId: String? = null,
     val isLoading: Boolean = false,
+    val isTesting: Boolean = false,
+    val testResult: String? = null,
     val error: String? = null,
     val isFirstLaunch: Boolean = false,
 )
