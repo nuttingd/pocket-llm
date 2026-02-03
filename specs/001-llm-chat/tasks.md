@@ -196,9 +196,9 @@
 
 ### Implementation
 
-- [ ] T060 [US6] Update `MessageBubble.kt` to replace plain `Text` with mikepenz `Markdown` composable for assistant messages — use `multiplatform-markdown-renderer-m3` with `retainState = true` for streaming, M3 `markdownColor()` theming, `markdownTypography()` from theme
-- [ ] T061 [US6] Integrate `multiplatform-markdown-renderer-code` for syntax highlighting in code blocks — configure `CodeHighlighting` with language detection, set up code block styling with M3 surface colors
-- [ ] T062 [US6] Add copy button to code blocks — use mikepenz built-in copy button (v0.38.0+), wire to `ClipboardManager`, show Snackbar on copy confirmation. `contentDescription = "Copy code"` for accessibility
+- [X] T060 [US6] Update `MessageBubble.kt` to replace plain `Text` with mikepenz `Markdown` composable for assistant messages — use `multiplatform-markdown-renderer-m3` with `retainState = true` for streaming, M3 `markdownColor()` theming, `markdownTypography()` from theme
+- [X] T061 [US6] Integrate `multiplatform-markdown-renderer-code` for syntax highlighting in code blocks — configure `CodeHighlighting` with language detection, set up code block styling with M3 surface colors
+- [X] T062 [US6] Add copy button to code blocks — use mikepenz built-in copy button (v0.38.0+), wire to `ClipboardManager`, show Snackbar on copy confirmation. `contentDescription = "Copy code"` for accessibility
 
 **Checkpoint**: Markdown rendering works for all common elements. Code blocks have syntax highlighting and copy buttons.
 
