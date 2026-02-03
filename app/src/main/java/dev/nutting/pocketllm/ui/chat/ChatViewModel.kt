@@ -9,6 +9,7 @@ import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.StreamState
+import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +70,8 @@ class ChatViewModel(
                 frequencyPenalty = settingsRepository.getDefaultFrequencyPenalty().first(),
                 presencePenalty = settingsRepository.getDefaultPresencePenalty().first(),
             )
-            _uiState.update { it.copy(defaultParams = defaults) }
+            val compactionPct = settingsRepository.getCompactionThresholdPct().first()
+            _uiState.update { it.copy(defaultParams = defaults, compactionThresholdPct = compactionPct) }
         }
     }
 
@@ -121,7 +123,12 @@ class ChatViewModel(
                 val leafId = conversation.activeLeafMessageId
                 if (leafId != null) {
                     messageRepository.getActiveBranch(leafId).collect { messages ->
-                        _uiState.update { it.copy(messages = messages) }
+                        _uiState.update {
+                            it.copy(
+                                messages = messages,
+                                estimatedTokensUsed = TokenCounter.estimateTokens(messages),
+                            )
+                        }
                     }
                 }
             }

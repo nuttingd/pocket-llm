@@ -20,4 +20,6 @@ data class ChatUiState(
     val conversationParams: ConversationParameters = ConversationParameters(),
     val defaultParams: ConversationParameters = ConversationParameters(),
     val showConversationSettings: Boolean = false,
+    val estimatedTokensUsed: Int = 0,
+    val compactionThresholdPct: Int = 75,
 )

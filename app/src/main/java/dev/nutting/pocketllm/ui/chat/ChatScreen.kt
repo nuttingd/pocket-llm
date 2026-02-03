@@ -2,8 +2,11 @@ package dev.nutting.pocketllm.ui.chat
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -18,6 +21,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -164,34 +168,78 @@ fun ChatScreen(
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { padding ->
-            if (state.messages.isEmpty() && !state.isStreaming) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "Start a conversation",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                if (state.estimatedTokensUsed > 0) {
+                    ContextUsageBar(state = state)
                 }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                ) {
-                    items(state.messages, key = { it.id }) { message ->
-                        MessageBubble(message = message)
-                    }
-                    if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
-                        item(key = "streaming") {
-                            StreamingMessageBubble(content = state.currentStreamingContent)
-                        }
-                    }
+                ChatContent(
+                    state = state,
+                    listState = listState,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContextUsageBar(state: ChatUiState) {
+    val maxTokens = state.conversationParams.maxTokens
+        ?: state.defaultParams.maxTokens
+        ?: 2048
+    // Use a generous context window estimate (4x max tokens or at least 8192)
+    val contextWindow = maxOf(maxTokens * 4, 8192)
+    val ratio = (state.estimatedTokensUsed.toFloat() / contextWindow).coerceIn(0f, 1f)
+    val thresholdRatio = state.compactionThresholdPct / 100f
+
+    val color = when {
+        ratio > thresholdRatio -> MaterialTheme.colorScheme.error
+        ratio > 0.5f -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    LinearProgressIndicator(
+        progress = { ratio },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(3.dp),
+        color = color,
+        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+    )
+}
+
+@Composable
+private fun ChatContent(
+    state: ChatUiState,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+) {
+    if (state.messages.isEmpty() && !state.isStreaming) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Start a conversation",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    } else {
+        LazyColumn(
+            state = listState,
+            modifier = modifier.fillMaxSize(),
+        ) {
+            items(state.messages, key = { it.id }) { message ->
+                MessageBubble(message = message)
+            }
+            if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
+                item(key = "streaming") {
+                    StreamingMessageBubble(content = state.currentStreamingContent)
                 }
             }
         }
