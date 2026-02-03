@@ -72,6 +72,12 @@ fun MessageBubble(
                 },
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
+                if (!isUser && message.thinkingContent != null) {
+                    ThinkingSection(
+                        thinkingContent = message.thinkingContent,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 if (isUser) {
                     Text(
                         text = message.content,
