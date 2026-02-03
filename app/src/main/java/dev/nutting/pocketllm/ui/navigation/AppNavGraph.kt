@@ -156,6 +156,7 @@ fun AppNavGraph(
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateBack = { navController.popBackStack() },
+                onNavigateToServers = { navController.navigate(ServerConfig) },
             )
         }
     }
