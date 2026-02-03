@@ -45,6 +45,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.rememberAsyncImagePainter
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
 import com.mikepenz.markdown.compose.elements.highlightedCodeFence
@@ -69,16 +70,17 @@ fun MessageBubble(
 ) {
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     val isUser = message.role == "user"
+    val isTool = message.role == "tool"
     val alignment = if (isUser) Alignment.End else Alignment.Start
-    val containerColor = if (isUser) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
+    val containerColor = when {
+        isUser -> MaterialTheme.colorScheme.primaryContainer
+        isTool -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
     }
-    val contentColor = if (isUser) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+    val contentColor = when {
+        isUser -> MaterialTheme.colorScheme.onPrimaryContainer
+        isTool -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Column(
@@ -88,7 +90,11 @@ fun MessageBubble(
         horizontalAlignment = alignment,
     ) {
         Text(
-            text = if (isUser) "You" else "Assistant",
+            text = when {
+                isUser -> "You"
+                isTool -> "Tool Result"
+                else -> "Assistant"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
@@ -122,7 +128,9 @@ fun MessageBubble(
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
-                if (isUser) {
+                if (isTool) {
+                    ToolResultContent(content = message.content, fontSizeSp = fontSizeSp)
+                } else if (isUser) {
                     if (message.content.isNotBlank()) {
                         Text(
                             text = message.content,
@@ -330,6 +338,40 @@ private fun TokenUsageFooter(message: MessageEntity) {
                 }
             }
         }
+    }
+}
+
+private const val TOOL_RESULT_PREVIEW_LENGTH = 300
+
+@Composable
+private fun ToolResultContent(
+    content: String,
+    fontSizeSp: Int,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val isLong = content.length > TOOL_RESULT_PREVIEW_LENGTH
+
+    val displayText = if (expanded || !isLong) content else content.take(TOOL_RESULT_PREVIEW_LENGTH) + "..."
+
+    Text(
+        text = displayText,
+        style = MaterialTheme.typography.bodySmall.copy(
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            fontSize = (fontSizeSp - 2).coerceAtLeast(10).sp,
+        ),
+        maxLines = if (expanded) Int.MAX_VALUE else 12,
+        overflow = TextOverflow.Ellipsis,
+    )
+
+    if (isLong) {
+        Text(
+            text = if (expanded) "Show less" else "Show more",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clickable { expanded = !expanded }
+                .padding(top = 4.dp),
+        )
     }
 }
 
