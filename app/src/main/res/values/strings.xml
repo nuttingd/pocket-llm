@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Template App</string>
-    <string name="app_description">A template Android app.</string>
-    <string name="app_github_url">https://github.com/nuttingd/template-android-app</string>
+    <string name="app_name">Pocket LLM</string>
+    <string name="app_description">A local-first LLM chat client for OpenAI-compatible servers.</string>
+    <string name="app_github_url">https://github.com/nuttingd/pocket-llm</string>
 </resources>

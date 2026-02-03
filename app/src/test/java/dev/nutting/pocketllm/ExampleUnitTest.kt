@@ -1,4 +1,4 @@
-package dev.nutting.template
+package dev.nutting.pocketllm
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

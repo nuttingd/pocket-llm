@@ -1,4 +1,4 @@
-package dev.nutting.template.ui.theme
+package dev.nutting.pocketllm.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -14,7 +14,7 @@ private val LightColorScheme = lightColorScheme()
 private val DarkColorScheme = darkColorScheme()
 
 @Composable
-fun TemplateTheme(
+fun PocketLlmTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
