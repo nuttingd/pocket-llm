@@ -233,13 +233,13 @@
 
 ### Implementation
 
-- [ ] T067 [US8] Add message action menu to `MessageBubble.kt` — long-press or tap menu icon reveals: Copy, Regenerate (assistant only), Edit (user only), Delete. Use M3 `DropdownMenu`
-- [ ] T068 [US8] Implement copy action — copy message content to clipboard via `ClipboardManager`, show Snackbar confirmation (FR-053)
-- [ ] T069 [US8] Implement regenerate action in `ChatViewModel.kt` — create new child message under the parent of the assistant message being regenerated, call `ChatManager.sendMessage()` to get new response, update `activeLeafMessageId` to the new branch, increment `childCount` on parent (FR-050)
-- [ ] T070 [US8] Implement edit action in `ChatViewModel.kt` — create new user message as sibling of the edited message (same `parentMessageId`), then send to get new assistant response, update `activeLeafMessageId`, increment `childCount` on parent (FR-051)
-- [ ] T071 [US8] Create `BranchNavigator.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/chat/` — composable showing "2 of 3" with prev/next arrows at branch points where `childCount > 1`, tapping navigates to sibling branch by updating `activeLeafMessageId` (FR-054, FR-055)
-- [ ] T072 [US8] Implement delete action in `ChatViewModel.kt` — delete message and cascade to subtree via Room FK CASCADE, update `childCount` on parent, navigate to remaining sibling if active branch deleted (FR-052)
-- [ ] T073 [US8] Update `ChatScreen.kt` to insert `BranchNavigator` at message positions where `childCount > 1`
+- [X] T067 [US8] Add message action menu to `MessageBubble.kt` — long-press or tap menu icon reveals: Copy, Regenerate (assistant only), Edit (user only), Delete. Use M3 `DropdownMenu`
+- [X] T068 [US8] Implement copy action — copy message content to clipboard via `ClipboardManager`, show Snackbar confirmation (FR-053)
+- [X] T069 [US8] Implement regenerate action in `ChatViewModel.kt` — create new child message under the parent of the assistant message being regenerated, call `ChatManager.sendMessage()` to get new response, update `activeLeafMessageId` to the new branch, increment `childCount` on parent (FR-050)
+- [X] T070 [US8] Implement edit action in `ChatViewModel.kt` — create new user message as sibling of the edited message (same `parentMessageId`), then send to get new assistant response, update `activeLeafMessageId`, increment `childCount` on parent (FR-051)
+- [X] T071 [US8] Create `BranchNavigator.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/chat/` — composable showing "2 of 3" with prev/next arrows at branch points where `childCount > 1`, tapping navigates to sibling branch by updating `activeLeafMessageId` (FR-054, FR-055)
+- [X] T072 [US8] Implement delete action in `ChatViewModel.kt` — delete message and cascade to subtree via Room FK CASCADE, update `childCount` on parent, navigate to remaining sibling if active branch deleted (FR-052)
+- [X] T073 [US8] Update `ChatScreen.kt` to insert `BranchNavigator` at message positions where `childCount > 1`
 
 **Checkpoint**: All message actions work. Branching creates navigable tree structure.
 
