@@ -30,14 +30,14 @@ jobs:
 
       - name: Decode release keystore
         if: env.RELEASE_KEYSTORE_BASE64 != ''
-        run: echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > template-app.jks
+        run: echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > release.jks
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
 
       - run: npx --yes -p semantic-release@24 -p @semantic-release/exec@6 semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_STORE_FILE: template-app.jks
+          RELEASE_STORE_FILE: release.jks
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
