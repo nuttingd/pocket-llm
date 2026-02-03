@@ -32,7 +32,7 @@ import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
         ConversationToolEnabledEntity::class,
         ParameterPresetEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class PocketLlmDatabase : RoomDatabase() {
@@ -64,7 +64,7 @@ abstract class PocketLlmDatabase : RoomDatabase() {
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`, tokenizer=unicode61)"
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`, tokenizer=simple)"
                 )
                 db.execSQL(
                     """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE BEFORE UPDATE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
@@ -150,13 +150,40 @@ abstract class PocketLlmDatabase : RoomDatabase() {
             db.execSQL("INSERT OR IGNORE INTO parameter_presets (id, name, isBuiltIn, temperature, maxTokens, topP, frequencyPenalty, presencePenalty) VALUES ('preset-balanced', 'Balanced', 1, 0.7, 2048, 1.0, 0.0, 0.0)")
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Recreate FTS table with simple tokenizer (unicode61 not available on all devices)
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_BEFORE_DELETE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_AFTER_UPDATE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_AFTER_INSERT")
+                db.execSQL("DROP TABLE IF EXISTS `message_fts`")
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`, tokenizer=simple)"
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE BEFORE UPDATE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_DELETE BEFORE DELETE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_AFTER_UPDATE AFTER UPDATE ON `messages` BEGIN INSERT INTO `message_fts`(`docid`, `content`) VALUES (NEW.`rowid`, NEW.`content`); END"""
+                )
+                db.execSQL(
+                    """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_AFTER_INSERT AFTER INSERT ON `messages` BEGIN INSERT INTO `message_fts`(`docid`, `content`) VALUES (NEW.`rowid`, NEW.`content`); END"""
+                )
+                db.execSQL("INSERT INTO `message_fts`(`message_fts`) VALUES ('rebuild')")
+            }
+        }
+
         fun create(context: Context): PocketLlmDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 PocketLlmDatabase::class.java,
                 "pocket_llm.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         seedBuiltInTools(db)
