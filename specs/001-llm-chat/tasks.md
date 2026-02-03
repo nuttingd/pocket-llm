@@ -114,16 +114,16 @@
 
 ### Tests
 
-- [ ] T041 [P] [US2] Create `ConversationListViewModelTest.kt` in `app/src/test/java/dev/nutting/pocketllm/ui/conversations/` — `given conversations exist when viewModel initialized then sorted by updatedAt desc`, `given conversation when renamed then title updates in list`, `given conversation when deleted then removed from list`
+- [X] T041 [P] [US2] Create `ConversationListViewModelTest.kt` in `app/src/test/java/dev/nutting/pocketllm/ui/conversations/` — `given conversations exist when viewModel initialized then sorted by updatedAt desc`, `given conversation when renamed then title updates in list`, `given conversation when deleted then removed from list`
 
 ### Implementation
 
-- [ ] T042 [P] [US2] Create `ConversationListUiState.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/conversations/` — data class with `conversations: List<ConversationSummary>` (id, title, lastMessage preview, updatedAt), `isLoading: Boolean`
-- [ ] T043 [US2] Create `ConversationListViewModel.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/conversations/` — exposes `ConversationListUiState` via `StateFlow`, methods: `createNewConversation()`, `renameConversation(id, newTitle)`, `deleteConversation(id)`, `selectConversation(id)`
-- [ ] T044 [US2] Create `ConversationListScreen.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/conversations/` — M3 NavigationDrawer or ModalDrawerSheet content: LazyColumn of conversations with title and last-message preview, sorted by most recent (FR-023). Swipe-to-delete or long-press menu for rename/delete. "New Chat" FAB or button. Empty state when no conversations. `contentDescription` on all interactive elements
-- [ ] T045 [US2] Integrate conversation drawer into `ChatScreen.kt` — add drawer toggle in TopAppBar, `ModalNavigationDrawer` wrapping the chat scaffold, navigate to selected conversation, "New Chat" creates empty conversation and navigates to it
-- [ ] T046 [US2] Update `ChatViewModel.kt` to auto-generate LLM title after first response completes (FR-022) — send title-generation request to LLM with first user+assistant exchange, update conversation title asynchronously
-- [ ] T047 [US2] Wire `ConversationListRoute` into `AppNavGraph.kt`, update `SettingsRepository` to persist `last_active_conversation_id`
+- [X] T042 [P] [US2] Create `ConversationListUiState.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/conversations/` — data class with `conversations: List<ConversationSummary>` (id, title, lastMessage preview, updatedAt), `isLoading: Boolean`
+- [X] T043 [US2] Create `ConversationListViewModel.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/conversations/` — exposes `ConversationListUiState` via `StateFlow`, methods: `createNewConversation()`, `renameConversation(id, newTitle)`, `deleteConversation(id)`, `selectConversation(id)`
+- [X] T044 [US2] Create `ConversationListScreen.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/conversations/` — M3 NavigationDrawer or ModalDrawerSheet content: LazyColumn of conversations with title and last-message preview, sorted by most recent (FR-023). Swipe-to-delete or long-press menu for rename/delete. "New Chat" FAB or button. Empty state when no conversations. `contentDescription` on all interactive elements
+- [X] T045 [US2] Integrate conversation drawer into `ChatScreen.kt` — add drawer toggle in TopAppBar, `ModalNavigationDrawer` wrapping the chat scaffold, navigate to selected conversation, "New Chat" creates empty conversation and navigates to it
+- [X] T046 [US2] Update `ChatViewModel.kt` to auto-generate LLM title after first response completes (FR-022) — send title-generation request to LLM with first user+assistant exchange, update conversation title asynchronously
+- [X] T047 [US2] Wire `ConversationListRoute` into `AppNavGraph.kt`, update `SettingsRepository` to persist `last_active_conversation_id`
 
 **Checkpoint**: Users can manage multiple conversations. Persistence verified across app restarts.
 
@@ -139,9 +139,9 @@
 
 ### Implementation
 
-- [ ] T048 [US3] Update `ServerConfigScreen.kt` to show server list with add/edit/delete — M3 list with server name, URL preview, connection status indicator. Tap to edit, swipe to delete. Add button for new server.
-- [ ] T049 [US3] Update `ServerConfigViewModel.kt` to manage multiple server profiles — load all servers, handle add/edit/delete, validate that deleting a server does not affect existing conversations (FK SET NULL)
-- [ ] T050 [US3] Update `ChatScreen.kt` TopAppBar server selector to show all configured servers as a dropdown, switching updates model list and saves `lastServerProfileId` on conversation
+- [X] T048 [US3] Update `ServerConfigScreen.kt` to show server list with add/edit/delete — M3 list with server name, URL preview, connection status indicator. Tap to edit, swipe to delete. Add button for new server.
+- [X] T049 [US3] Update `ServerConfigViewModel.kt` to manage multiple server profiles — load all servers, handle add/edit/delete, validate that deleting a server does not affect existing conversations (FK SET NULL)
+- [X] T050 [US3] Update `ChatScreen.kt` TopAppBar server selector to show all configured servers as a dropdown, switching updates model list and saves `lastServerProfileId` on conversation
 
 **Checkpoint**: Multi-server management works. Orphaned conversations remain accessible after server deletion.
 
@@ -157,11 +157,11 @@
 
 ### Implementation
 
-- [ ] T051 [P] [US4] Create conversation settings bottom sheet composable in `app/src/main/java/dev/nutting/pocketllm/ui/chat/ConversationSettingsSheet.kt` — system prompt text field, temperature/maxTokens/topP/frequencyPenalty/presencePenalty sliders with current values shown, "Reset to defaults" button, visual indicator for overridden values (FR-014)
-- [ ] T052 [US4] Update `ChatViewModel.kt` to apply per-conversation parameters when building `ChatCompletionRequest` — merge conversation overrides with global defaults from `SettingsRepository`, include system prompt as first message
-- [ ] T053 [US4] Add global defaults section to `SettingsScreen.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/settings/` — default system prompt, default temperature/maxTokens/topP/frequencyPenalty/presencePenalty with sliders, persisted via `SettingsRepository`
-- [ ] T054 [US4] Create `SettingsViewModel.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/settings/` and `SettingsUiState.kt` — expose all settings as `StateFlow`, update methods for each setting
-- [ ] T055 [US4] Create `SettingsScreen.kt` shell in `app/src/main/java/dev/nutting/pocketllm/ui/settings/` — M3 settings screen with sections for General (defaults from T053) and navigation to Server Config. Wire into `AppNavGraph.kt`
+- [X] T051 [P] [US4] Create conversation settings bottom sheet composable in `app/src/main/java/dev/nutting/pocketllm/ui/chat/ConversationSettingsSheet.kt` — system prompt text field, temperature/maxTokens/topP/frequencyPenalty/presencePenalty sliders with current values shown, "Reset to defaults" button, visual indicator for overridden values (FR-014)
+- [X] T052 [US4] Update `ChatViewModel.kt` to apply per-conversation parameters when building `ChatCompletionRequest` — merge conversation overrides with global defaults from `SettingsRepository`, include system prompt as first message
+- [X] T053 [US4] Add global defaults section to `SettingsScreen.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/settings/` — default system prompt, default temperature/maxTokens/topP/frequencyPenalty/presencePenalty with sliders, persisted via `SettingsRepository`
+- [X] T054 [US4] Create `SettingsViewModel.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/settings/` and `SettingsUiState.kt` — expose all settings as `StateFlow`, update methods for each setting
+- [X] T055 [US4] Create `SettingsScreen.kt` shell in `app/src/main/java/dev/nutting/pocketllm/ui/settings/` — M3 settings screen with sections for General (defaults from T053) and navigation to Server Config. Wire into `AppNavGraph.kt`
 
 **Checkpoint**: System prompts and generation parameters work globally and per-conversation.
 
