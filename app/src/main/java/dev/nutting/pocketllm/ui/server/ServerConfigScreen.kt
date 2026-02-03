@@ -28,6 +28,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -249,6 +251,22 @@ private fun ServerEditForm(
             label = { Text("API Key (optional)") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+        )
+        OutlinedTextField(
+            value = editing.requestTimeoutSeconds.toString(),
+            onValueChange = { value ->
+                val seconds = value.filter { it.isDigit() }.toIntOrNull()
+                if (seconds != null) {
+                    onUpdate(editing.copy(requestTimeoutSeconds = seconds))
+                } else if (value.isEmpty()) {
+                    onUpdate(editing.copy(requestTimeoutSeconds = 0))
+                }
+            },
+            label = { Text("Request Timeout") },
+            suffix = { Text("seconds") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
         Row(
             modifier = Modifier.fillMaxWidth(),

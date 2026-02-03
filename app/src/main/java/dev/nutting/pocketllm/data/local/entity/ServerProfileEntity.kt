@@ -9,7 +9,7 @@ data class ServerProfileEntity(
     val name: String,
     val baseUrl: String,
     val hasApiKey: Boolean = false,
-    val requestTimeoutSeconds: Int = 60,
+    val requestTimeoutSeconds: Int = 120,
     val createdAt: Long,
     val updatedAt: Long,
 )

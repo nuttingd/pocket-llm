@@ -20,5 +20,5 @@ data class EditingServer(
     val name: String = "",
     val baseUrl: String = "",
     val apiKey: String = "",
-    val requestTimeoutSeconds: Int = 60,
+    val requestTimeoutSeconds: Int = 120,
 )
