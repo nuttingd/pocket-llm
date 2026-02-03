@@ -10,12 +10,14 @@ import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
 import dev.nutting.pocketllm.data.local.dao.ConversationDao
 import dev.nutting.pocketllm.data.local.dao.MessageDao
 import dev.nutting.pocketllm.data.local.dao.ServerProfileDao
+import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.MessageFts
+import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 
@@ -28,8 +30,9 @@ import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
         MessageFts::class,
         ToolDefinitionEntity::class,
         ConversationToolEnabledEntity::class,
+        ParameterPresetEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class PocketLlmDatabase : RoomDatabase() {
@@ -38,6 +41,7 @@ abstract class PocketLlmDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun compactionSummaryDao(): CompactionSummaryDao
     abstract fun toolDefinitionDao(): ToolDefinitionDao
+    abstract fun parameterPresetDao(): ParameterPresetDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -121,16 +125,42 @@ abstract class PocketLlmDatabase : RoomDatabase() {
             )
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `parameter_presets` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `name` TEXT NOT NULL,
+                        `isBuiltIn` INTEGER NOT NULL DEFAULT 0,
+                        `temperature` REAL,
+                        `maxTokens` INTEGER,
+                        `topP` REAL,
+                        `frequencyPenalty` REAL,
+                        `presencePenalty` REAL
+                    )"""
+                )
+                seedBuiltInPresets(db)
+            }
+        }
+
+        private fun seedBuiltInPresets(db: SupportSQLiteDatabase) {
+            db.execSQL("INSERT OR IGNORE INTO parameter_presets (id, name, isBuiltIn, temperature, maxTokens, topP, frequencyPenalty, presencePenalty) VALUES ('preset-creative', 'Creative', 1, 1.2, 2048, 0.95, 0.3, 0.3)")
+            db.execSQL("INSERT OR IGNORE INTO parameter_presets (id, name, isBuiltIn, temperature, maxTokens, topP, frequencyPenalty, presencePenalty) VALUES ('preset-precise', 'Precise', 1, 0.2, 2048, 0.5, 0.0, 0.0)")
+            db.execSQL("INSERT OR IGNORE INTO parameter_presets (id, name, isBuiltIn, temperature, maxTokens, topP, frequencyPenalty, presencePenalty) VALUES ('preset-code', 'Code', 1, 0.1, 4096, 0.9, 0.0, 0.0)")
+            db.execSQL("INSERT OR IGNORE INTO parameter_presets (id, name, isBuiltIn, temperature, maxTokens, topP, frequencyPenalty, presencePenalty) VALUES ('preset-balanced', 'Balanced', 1, 0.7, 2048, 1.0, 0.0, 0.0)")
+        }
+
         fun create(context: Context): PocketLlmDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 PocketLlmDatabase::class.java,
                 "pocket_llm.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         seedBuiltInTools(db)
+                        seedBuiltInPresets(db)
                     }
                 })
                 .build()

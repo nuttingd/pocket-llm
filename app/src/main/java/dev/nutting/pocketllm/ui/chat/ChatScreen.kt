@@ -102,6 +102,9 @@ fun ChatScreen(
             onDismiss = viewModel::dismissConversationSettings,
             availableTools = state.availableTools,
             onToggleTool = viewModel::toggleTool,
+            presets = state.presets,
+            onApplyPreset = viewModel::applyPreset,
+            onSaveAsPreset = viewModel::saveAsPreset,
         )
     }
 

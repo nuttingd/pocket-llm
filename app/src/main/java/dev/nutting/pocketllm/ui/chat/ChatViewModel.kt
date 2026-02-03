@@ -7,8 +7,10 @@ import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
+import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
+import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.StreamState
@@ -30,6 +32,7 @@ class ChatViewModel(
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
     private val toolDefinitionDao: ToolDefinitionDao? = null,
+    private val parameterPresetDao: ParameterPresetDao? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -44,6 +47,7 @@ class ChatViewModel(
         loadServers()
         loadDefaults()
         loadTools()
+        loadPresets()
         chatManager.toolApprovalCallback = { toolCalls ->
             val deferred = CompletableDeferred<Boolean>()
             toolApprovalDeferred = deferred
@@ -183,6 +187,44 @@ class ChatViewModel(
             toolDefinitionDao?.getAll()?.collect { tools ->
                 _uiState.update { it.copy(availableTools = tools) }
             }
+        }
+    }
+
+    private fun loadPresets() {
+        viewModelScope.launch {
+            parameterPresetDao?.getAll()?.collect { presets ->
+                _uiState.update { it.copy(presets = presets) }
+            }
+        }
+    }
+
+    fun applyPreset(preset: ParameterPresetEntity) {
+        val params = ConversationParameters(
+            systemPrompt = _uiState.value.conversationParams.systemPrompt,
+            temperature = preset.temperature,
+            maxTokens = preset.maxTokens,
+            topP = preset.topP,
+            frequencyPenalty = preset.frequencyPenalty,
+            presencePenalty = preset.presencePenalty,
+        )
+        updateConversationParams(params)
+    }
+
+    fun saveAsPreset(name: String) {
+        val params = _uiState.value.conversationParams
+        val defaults = _uiState.value.defaultParams
+        viewModelScope.launch {
+            parameterPresetDao?.insert(
+                ParameterPresetEntity(
+                    id = UUID.randomUUID().toString(),
+                    name = name,
+                    temperature = params.temperature ?: defaults.temperature,
+                    maxTokens = params.maxTokens ?: defaults.maxTokens,
+                    topP = params.topP ?: defaults.topP,
+                    frequencyPenalty = params.frequencyPenalty ?: defaults.frequencyPenalty,
+                    presencePenalty = params.presencePenalty ?: defaults.presencePenalty,
+                )
+            )
         }
     }
 

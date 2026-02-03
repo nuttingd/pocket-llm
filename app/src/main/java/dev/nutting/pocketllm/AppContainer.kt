@@ -37,6 +37,7 @@ class AppContainer(context: Context) {
     )
 
     val toolDefinitionDao = database.toolDefinitionDao()
+    val parameterPresetDao = database.parameterPresetDao()
 
     val chatManager = ChatManager(
         serverRepository = serverRepository,

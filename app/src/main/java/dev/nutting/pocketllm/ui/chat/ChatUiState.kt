@@ -1,6 +1,7 @@
 package dev.nutting.pocketllm.ui.chat
 
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
+import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
@@ -26,4 +27,5 @@ data class ChatUiState(
     val pendingToolCalls: List<ToolCall> = emptyList(),
     val toolCallResults: Map<String, String> = emptyMap(),
     val availableTools: List<ToolDefinitionEntity> = emptyList(),
+    val presets: List<ParameterPresetEntity> = emptyList(),
 )

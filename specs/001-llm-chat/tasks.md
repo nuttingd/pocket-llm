@@ -369,9 +369,9 @@
 
 ### Implementation
 
-- [ ] T098 [P] [US16] Create `ParameterPresetEntity.kt` in `app/src/main/java/dev/nutting/pocketllm/data/local/entity/` and `ParameterPresetDao.kt` in `dao/` per data-model.md. Add to `PocketLlmDatabase.kt` (migration). Seed built-in presets (Creative, Precise, Code, Balanced)
-- [ ] T099 [US16] Add preset picker to `ConversationSettingsSheet.kt` — M3 dropdown of presets, selecting one fills parameter sliders, "Save as Preset" button to create custom preset from current values, delete custom presets (FR-100, FR-101, FR-102)
-- [ ] T100 [US16] Add preset management section to `SettingsScreen.kt` — list of presets (built-in read-only, custom editable), create/edit/delete custom presets, set default preset
+- [X] T098 [P] [US16] Create `ParameterPresetEntity.kt` in `app/src/main/java/dev/nutting/pocketllm/data/local/entity/` and `ParameterPresetDao.kt` in `dao/` per data-model.md. Add to `PocketLlmDatabase.kt` (migration). Seed built-in presets (Creative, Precise, Code, Balanced)
+- [X] T099 [US16] Add preset picker to `ConversationSettingsSheet.kt` — M3 dropdown of presets, selecting one fills parameter sliders, "Save as Preset" button to create custom preset from current values, delete custom presets (FR-100, FR-101, FR-102)
+- [X] T100 [US16] Add preset management section to `SettingsScreen.kt` — list of presets (built-in read-only, custom editable), create/edit/delete custom presets, set default preset
 
 **Checkpoint**: Presets work for quick parameter configuration.
 
