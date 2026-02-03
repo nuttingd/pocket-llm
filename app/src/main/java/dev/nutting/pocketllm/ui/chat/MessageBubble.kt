@@ -36,10 +36,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.rememberAsyncImagePainter
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
@@ -60,6 +63,7 @@ fun MessageBubble(
     branchInfo: BranchInfo? = null,
     onNavigateBranch: ((String, Int) -> Unit)? = null,
 ) {
+    var previewImageUrl by remember { mutableStateOf<String?>(null) }
     val isUser = message.role == "user"
     val alignment = if (isUser) Alignment.End else Alignment.Start
     val containerColor = if (isUser) {
@@ -124,11 +128,12 @@ fun MessageBubble(
                     message.imageUris?.split("|")?.forEach { dataUrl ->
                         Image(
                             painter = rememberAsyncImagePainter(dataUrl),
-                            contentDescription = "Attached image",
+                            contentDescription = "Attached image, tap to preview",
                             modifier = Modifier
                                 .widthIn(max = 200.dp)
                                 .height(150.dp)
                                 .clip(RoundedCornerShape(8.dp))
+                                .clickable { previewImageUrl = dataUrl }
                                 .padding(top = 4.dp),
                             contentScale = ContentScale.Crop,
                         )
@@ -164,6 +169,38 @@ fun MessageBubble(
             BranchNavigator(
                 branchInfo = branchInfo,
                 onNavigate = { offset -> onNavigateBranch?.invoke(message.parentMessageId ?: "", offset) },
+            )
+        }
+    }
+
+    if (previewImageUrl != null) {
+        ImagePreviewDialog(
+            imageUrl = previewImageUrl!!,
+            onDismiss = { previewImageUrl = null },
+        )
+    }
+}
+
+@Composable
+private fun ImagePreviewDialog(
+    imageUrl: String,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(imageUrl),
+                contentDescription = "Full-screen image preview",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
             )
         }
     }
