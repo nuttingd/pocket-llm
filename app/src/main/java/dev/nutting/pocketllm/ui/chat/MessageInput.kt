@@ -17,8 +17,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,11 +56,21 @@ fun MessageInput(
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     val attachedImages = remember { mutableStateListOf<Uri>() }
+    val context = LocalContext.current
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents(),
     ) { uris ->
         attachedImages.addAll(uris)
+    }
+
+    var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+    ) { success ->
+        if (success) {
+            cameraImageUri?.let { attachedImages.add(it) }
+        }
     }
 
     Surface(
@@ -95,6 +108,24 @@ fun MessageInput(
                             .semantics { contentDescription = "Attach image" },
                     ) {
                         Icon(Icons.Default.AttachFile, contentDescription = null)
+                    }
+                    IconButton(
+                        onClick = {
+                            val cameraDir = File(context.cacheDir, "camera").apply { mkdirs() }
+                            val imageFile = File(cameraDir, "photo_${System.currentTimeMillis()}.jpg")
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                imageFile,
+                            )
+                            cameraImageUri = uri
+                            cameraLauncher.launch(uri)
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Take photo" },
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
                     }
                 }
                 OutlinedTextField(
