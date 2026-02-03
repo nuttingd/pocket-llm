@@ -33,3 +33,10 @@ Single-module Android app (`app/`) using MVVM with Jetpack Compose.
 ## Release Pipeline
 
 Uses semantic-release on the `main` branch with Conventional Commits. CI (GitHub Actions) builds a signed APK and creates a GitHub release. Version codes follow `MAJOR*10000 + MINOR*100 + PATCH` (managed by `scripts/set-version.sh`).
+
+## Active Technologies
+- Kotlin (managed by Kotlin Gradle Plugin 2.2.10), JDK 21 + Jetpack Compose (BOM 2026.01.00), Material 3, Room 2.8.4, Ktor Client 3.4.0, Navigation Compose 2.9.7, kotlinx-serialization-json 1.8.0, mikepenz markdown-renderer 0.39.2, Tink 1.13.0, DataStore 1.1.7 (001-llm-chat)
+- Room (SQLite) for conversations/messages, DataStore Preferences for settings, encrypted DataStore (Tink) for API keys (001-llm-chat)
+
+## Recent Changes
+- 001-llm-chat: Added Kotlin (managed by Kotlin Gradle Plugin 2.2.10), JDK 21 + Jetpack Compose (BOM 2026.01.00), Material 3, Room 2.8.4, Ktor Client 3.4.0, Navigation Compose 2.9.7, kotlinx-serialization-json 1.8.0, mikepenz markdown-renderer 0.39.2, Tink 1.13.0, DataStore 1.1.7
