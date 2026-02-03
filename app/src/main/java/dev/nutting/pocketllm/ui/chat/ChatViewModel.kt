@@ -31,13 +31,64 @@ class ChatViewModel(
 
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
+    private var isFirstMessage = true
+
+    init {
+        loadServers()
+        loadDefaults()
+    }
 
     fun loadConversation(conversationId: String?) {
         if (conversationId != null) {
             _uiState.update { it.copy(conversationId = conversationId) }
+            isFirstMessage = false
             observeConversation(conversationId)
+            loadConversationParams(conversationId)
+        } else {
+            isFirstMessage = true
+            _uiState.update { it.copy(conversationParams = ConversationParameters()) }
         }
         loadServerAndModels()
+    }
+
+    private fun loadServers() {
+        viewModelScope.launch {
+            serverRepository.getAll().collect { servers ->
+                _uiState.update { it.copy(availableServers = servers) }
+            }
+        }
+    }
+
+    private fun loadDefaults() {
+        viewModelScope.launch {
+            val defaults = ConversationParameters(
+                systemPrompt = settingsRepository.getDefaultSystemPrompt().first().ifBlank { null },
+                temperature = settingsRepository.getDefaultTemperature().first(),
+                maxTokens = settingsRepository.getDefaultMaxTokens().first(),
+                topP = settingsRepository.getDefaultTopP().first(),
+                frequencyPenalty = settingsRepository.getDefaultFrequencyPenalty().first(),
+                presencePenalty = settingsRepository.getDefaultPresencePenalty().first(),
+            )
+            _uiState.update { it.copy(defaultParams = defaults) }
+        }
+    }
+
+    private fun loadConversationParams(conversationId: String) {
+        viewModelScope.launch {
+            val conversation = conversationRepository.getById(conversationId).first() ?: return@launch
+            _uiState.update {
+                it.copy(
+                    conversationParams = ConversationParameters(
+                        systemPrompt = conversation.systemPrompt,
+                        temperature = conversation.temperature,
+                        maxTokens = conversation.maxTokens,
+                        topP = conversation.topP,
+                        frequencyPenalty = conversation.frequencyPenalty,
+                        presencePenalty = conversation.presencePenalty,
+                    )
+                )
+            }
+        }
     }
 
     private fun loadServerAndModels() {
@@ -77,6 +128,50 @@ class ChatViewModel(
         }
     }
 
+    fun updateConversationParams(params: ConversationParameters) {
+        _uiState.update { it.copy(conversationParams = params) }
+        val conversationId = _uiState.value.conversationId ?: return
+        viewModelScope.launch {
+            conversationRepository.updateParameters(
+                id = conversationId,
+                serverProfileId = _uiState.value.selectedServer?.id,
+                modelId = _uiState.value.selectedModelId,
+                systemPrompt = params.systemPrompt,
+                temperature = params.temperature,
+                maxTokens = params.maxTokens,
+                topP = params.topP,
+                frequencyPenalty = params.frequencyPenalty,
+                presencePenalty = params.presencePenalty,
+            )
+        }
+    }
+
+    fun resetConversationParamsToDefaults() {
+        updateConversationParams(ConversationParameters())
+    }
+
+    fun toggleConversationSettings() {
+        _uiState.update { it.copy(showConversationSettings = !it.showConversationSettings) }
+    }
+
+    fun dismissConversationSettings() {
+        _uiState.update { it.copy(showConversationSettings = false) }
+    }
+
+    private fun resolvedParams(): ResolvedParams {
+        val state = _uiState.value
+        val conv = state.conversationParams
+        val def = state.defaultParams
+        return ResolvedParams(
+            systemPrompt = conv.systemPrompt ?: def.systemPrompt,
+            temperature = conv.temperature ?: def.temperature,
+            maxTokens = conv.maxTokens ?: def.maxTokens,
+            topP = conv.topP ?: def.topP,
+            frequencyPenalty = conv.frequencyPenalty ?: def.frequencyPenalty,
+            presencePenalty = conv.presencePenalty ?: def.presencePenalty,
+        )
+    }
+
     fun sendMessage(content: String) {
         val state = _uiState.value
         val server = state.selectedServer ?: run {
@@ -88,8 +183,9 @@ class ChatViewModel(
             return
         }
 
+        val resolved = resolvedParams()
+
         streamJob = viewModelScope.launch {
-            // Create conversation if needed
             var conversationId = state.conversationId
             if (conversationId == null) {
                 conversationId = UUID.randomUUID().toString()
@@ -123,6 +219,12 @@ class ChatViewModel(
                 content = content,
                 serverId = server.id,
                 modelId = modelId,
+                systemPrompt = resolved.systemPrompt,
+                temperature = resolved.temperature,
+                maxTokens = resolved.maxTokens,
+                topP = resolved.topP,
+                frequencyPenalty = resolved.frequencyPenalty,
+                presencePenalty = resolved.presencePenalty,
             ).collect { streamState ->
                 when (streamState) {
                     is StreamState.Delta -> {
@@ -138,6 +240,10 @@ class ChatViewModel(
                             it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                         observeConversation(conversationId)
+                        if (isFirstMessage) {
+                            isFirstMessage = false
+                            generateTitle(conversationId, content, streamState.message.content)
+                        }
                     }
                     is StreamState.Error -> {
                         _uiState.update {
@@ -177,4 +283,64 @@ class ChatViewModel(
     fun dismissError() {
         _uiState.update { it.copy(error = null) }
     }
+
+    private fun generateTitle(conversationId: String, userMessage: String, assistantMessage: String) {
+        viewModelScope.launch {
+            val state = _uiState.value
+            val server = state.selectedServer ?: return@launch
+            val modelId = state.selectedModelId ?: return@launch
+            val apiKey = if (server.hasApiKey) {
+                serverRepository.getApiKey(server.id).first()
+            } else null
+
+            try {
+                val request = dev.nutting.pocketllm.data.remote.model.ChatCompletionRequest(
+                    model = modelId,
+                    messages = listOf(
+                        dev.nutting.pocketllm.data.remote.model.ChatMessage(
+                            role = "system",
+                            content = dev.nutting.pocketllm.data.remote.model.ChatContent.Text(
+                                "Generate a short title (max 6 words) for this conversation. Respond with only the title, no quotes or punctuation."
+                            ),
+                        ),
+                        dev.nutting.pocketllm.data.remote.model.ChatMessage(
+                            role = "user",
+                            content = dev.nutting.pocketllm.data.remote.model.ChatContent.Text(userMessage),
+                        ),
+                        dev.nutting.pocketllm.data.remote.model.ChatMessage(
+                            role = "assistant",
+                            content = dev.nutting.pocketllm.data.remote.model.ChatContent.Text(assistantMessage.take(200)),
+                        ),
+                    ),
+                    maxTokens = 20,
+                    temperature = 0.3f,
+                    stream = false,
+                )
+
+                val apiClient = dev.nutting.pocketllm.data.remote.OpenAiApiClient()
+                val response = apiClient.chatCompletion(
+                    baseUrl = server.baseUrl,
+                    apiKey = apiKey,
+                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                    request = request,
+                )
+                val title = response.choices.firstOrNull()?.message?.content?.trim()
+                    ?.take(60) ?: return@launch
+
+                conversationRepository.rename(conversationId, title)
+                _uiState.update { it.copy(conversationTitle = title) }
+            } catch (_: Exception) {
+                // Title generation is best-effort; ignore failures
+            }
+        }
+    }
 }
+
+private data class ResolvedParams(
+    val systemPrompt: String?,
+    val temperature: Float?,
+    val maxTokens: Int?,
+    val topP: Float?,
+    val frequencyPenalty: Float?,
+    val presencePenalty: Float?,
+)
