@@ -46,6 +46,32 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
     class StreamDisconnected(val partialContent: String) : ApiException("Connection lost during response. Partial response preserved.")
 }
 
+internal suspend fun <T> retryWithBackoff(
+    maxRetries: Int = 3,
+    initialBackoffMs: Long = 1000L,
+    block: suspend () -> T,
+): T {
+    var lastException: Exception? = null
+    for (attempt in 0 until maxRetries) {
+        try {
+            return block()
+        } catch (e: ApiException.RateLimited) {
+            lastException = e
+            val waitMs = (e.retryAfterSeconds?.times(1000))
+                ?: (initialBackoffMs * (1L shl attempt))
+            delay(waitMs.coerceAtMost(30_000))
+        } catch (e: ApiException.ServerError) {
+            if (e.statusCode in listOf(502, 503, 504) && attempt < maxRetries - 1) {
+                lastException = e
+                delay(initialBackoffMs * (1L shl attempt))
+            } else {
+                throw e
+            }
+        }
+    }
+    throw lastException!!
+}
+
 class OpenAiApiClient {
 
     private val json = Json {
@@ -72,27 +98,8 @@ class OpenAiApiClient {
         }
     }
 
-    private suspend fun <T> withRetry(block: suspend () -> T): T {
-        var lastException: Exception? = null
-        for (attempt in 0 until MAX_RETRIES) {
-            try {
-                return block()
-            } catch (e: ApiException.RateLimited) {
-                lastException = e
-                val waitMs = (e.retryAfterSeconds?.times(1000))
-                    ?: (INITIAL_BACKOFF_MS * (1L shl attempt))
-                delay(waitMs.coerceAtMost(30_000))
-            } catch (e: ApiException.ServerError) {
-                if (e.statusCode in listOf(502, 503, 504) && attempt < MAX_RETRIES - 1) {
-                    lastException = e
-                    delay(INITIAL_BACKOFF_MS * (1L shl attempt))
-                } else {
-                    throw e
-                }
-            }
-        }
-        throw lastException!!
-    }
+    internal suspend fun <T> withRetry(block: suspend () -> T): T =
+        retryWithBackoff(MAX_RETRIES, INITIAL_BACKOFF_MS, block)
 
     private fun mapException(e: Throwable): ApiException {
         Log.e(TAG, "Mapping exception: ${e::class.simpleName}: ${e.message}", e)

@@ -1,11 +1,13 @@
 package dev.nutting.pocketllm.domain.tool
 
+import android.util.Log
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 object ToolExecutor {
 
+    private const val TAG = "ToolExecutor"
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun execute(toolName: String, argumentsJson: String): String {
@@ -25,6 +27,7 @@ object ToolExecutor {
                 else -> "Error: unknown tool '$toolName'"
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to execute tool '$toolName'", e)
             "Error executing tool '$toolName': ${e.message}"
         }
     }
