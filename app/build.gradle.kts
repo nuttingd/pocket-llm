@@ -119,6 +119,9 @@ dependencies {
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.2")
     implementation("com.mikepenz:multiplatform-markdown-renderer-code:0.39.2")
 
+    // Image loading
+    implementation("io.coil-kt.coil3:coil-compose:3.1.0")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
 

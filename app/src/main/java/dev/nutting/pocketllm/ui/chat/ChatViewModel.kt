@@ -9,8 +9,11 @@ import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
+import android.content.Context
+import android.net.Uri
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
+import dev.nutting.pocketllm.util.ImageCompressor
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.StreamState
@@ -268,6 +271,17 @@ class ChatViewModel(
     }
 
     fun sendMessage(content: String) {
+        sendMessageInternal(content)
+    }
+
+    fun sendMessageWithImages(content: String, imageUris: List<Uri>, context: Context) {
+        val imageDataUrls = imageUris.mapNotNull { uri ->
+            ImageCompressor.compressAndEncode(context, uri)
+        }
+        sendMessageInternal(content, imageDataUrls)
+    }
+
+    private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList()) {
         val state = _uiState.value
         val server = state.selectedServer ?: run {
             _uiState.update { it.copy(error = "No server selected") }
@@ -320,6 +334,7 @@ class ChatViewModel(
                 topP = resolved.topP,
                 frequencyPenalty = resolved.frequencyPenalty,
                 presencePenalty = resolved.presencePenalty,
+                imageDataUrls = imageDataUrls,
             ).collect { streamState ->
                 when (streamState) {
                     is StreamState.Delta -> {

@@ -35,6 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.rememberAsyncImagePainter
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -107,10 +113,24 @@ fun MessageBubble(
                     )
                 }
                 if (isUser) {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+                    if (message.content.isNotBlank()) {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    message.imageUris?.split("|")?.forEach { dataUrl ->
+                        Image(
+                            painter = rememberAsyncImagePainter(dataUrl),
+                            contentDescription = "Attached image",
+                            modifier = Modifier
+                                .widthIn(max = 200.dp)
+                                .height(150.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .padding(top = 4.dp),
+                            contentScale = ContentScale.Crop,
+                        )
+                    }
                 } else {
                     Markdown(
                         content = message.content,

@@ -185,6 +185,9 @@ fun ChatScreen(
                     modifier = Modifier
                         .imePadding()
                         .windowInsetsPadding(WindowInsets.navigationBars),
+                    onSendMessageWithImages = { text, uris ->
+                        viewModel.sendMessageWithImages(text, uris, context)
+                    },
                 )
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },

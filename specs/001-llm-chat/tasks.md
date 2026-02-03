@@ -350,10 +350,10 @@
 
 ### Implementation
 
-- [ ] T094 [P] [US14] Create `ImageCompressor.kt` in `app/src/main/java/dev/nutting/pocketllm/util/` — resize image to max 1024px on long side, compress to JPEG quality 85%, base64-encode. Read `image_max_dimension_px` and `image_jpeg_quality` from settings (FR-081)
-- [ ] T095 [US14] Update `MessageInput.kt` to add attach button — image picker (gallery), camera capture, clipboard paste. Display image thumbnails in input area before sending
-- [ ] T096 [US14] Update `ChatManager.kt` to build multimodal `ChatCompletionRequest` with `content` as array of `ContentPart` (text + image_url) per contracts section 6 when images attached
-- [ ] T097 [US14] Update `MessageBubble.kt` to display attached images inline — load from local URI, tap opens full-screen preview dialog (FR-082, FR-083 vision warning via Snackbar)
+- [X] T094 [P] [US14] Create `ImageCompressor.kt` in `app/src/main/java/dev/nutting/pocketllm/util/` — resize image to max 1024px on long side, compress to JPEG quality 85%, base64-encode. Read `image_max_dimension_px` and `image_jpeg_quality` from settings (FR-081)
+- [X] T095 [US14] Update `MessageInput.kt` to add attach button — image picker (gallery), camera capture, clipboard paste. Display image thumbnails in input area before sending
+- [X] T096 [US14] Update `ChatManager.kt` to build multimodal `ChatCompletionRequest` with `content` as array of `ContentPart` (text + image_url) per contracts section 6 when images attached
+- [X] T097 [US14] Update `MessageBubble.kt` to display attached images inline — load from local URI, tap opens full-screen preview dialog (FR-082, FR-083 vision warning via Snackbar)
 
 **Checkpoint**: Image attachment and vision API integration works end-to-end.
 

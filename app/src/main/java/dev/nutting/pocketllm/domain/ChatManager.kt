@@ -61,6 +61,7 @@ class ChatManager(
         topP: Float? = null,
         frequencyPenalty: Float? = null,
         presencePenalty: Float? = null,
+        imageDataUrls: List<String> = emptyList(),
     ): Flow<StreamState> = flow {
         try {
             // Get server details
@@ -79,12 +80,14 @@ class ChatManager(
             val parentMessage = parentId?.let { messageRepository.getById(it) }
 
             val anchorMessage = if (content.isNotEmpty()) {
+                val imageUrisStr = imageDataUrls.takeIf { it.isNotEmpty() }?.joinToString("|")
                 val userMessage = MessageEntity(
                     id = UUID.randomUUID().toString(),
                     conversationId = conversationId,
                     parentMessageId = parentId,
                     role = "user",
                     content = content,
+                    imageUris = imageUrisStr,
                     depth = (parentMessage?.depth ?: -1) + 1,
                     createdAt = System.currentTimeMillis(),
                 )
@@ -144,10 +147,27 @@ class ChatManager(
                     add(ChatMessage(role = "system", content = ChatContent.Text(it)))
                 }
                 effectiveMessages.forEach { msg ->
+                    val chatContent = if (msg.imageUris != null && msg.role == "user") {
+                        val parts = buildList<dev.nutting.pocketllm.data.remote.model.ContentPart> {
+                            if (msg.content.isNotBlank()) {
+                                add(dev.nutting.pocketllm.data.remote.model.ContentPart.TextPart(msg.content))
+                            }
+                            msg.imageUris.split("|").forEach { dataUrl ->
+                                add(
+                                    dev.nutting.pocketllm.data.remote.model.ContentPart.ImagePart(
+                                        dev.nutting.pocketllm.data.remote.model.ImageUrl(url = dataUrl)
+                                    )
+                                )
+                            }
+                        }
+                        ChatContent.Parts(parts)
+                    } else {
+                        ChatContent.Text(msg.content)
+                    }
                     add(
                         ChatMessage(
                             role = msg.role,
-                            content = ChatContent.Text(msg.content),
+                            content = chatContent,
                             toolCallId = msg.toolCallId,
                         )
                     )
