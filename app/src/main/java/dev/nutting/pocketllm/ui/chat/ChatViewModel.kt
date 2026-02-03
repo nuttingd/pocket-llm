@@ -7,10 +7,13 @@ import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
+import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
+import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.StreamState
 import dev.nutting.pocketllm.util.TokenCounter
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +29,7 @@ class ChatViewModel(
     private val messageRepository: MessageRepository,
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
+    private val toolDefinitionDao: ToolDefinitionDao? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -34,10 +38,18 @@ class ChatViewModel(
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
     private var isFirstMessage = true
+    private var toolApprovalDeferred: CompletableDeferred<Boolean>? = null
 
     init {
         loadServers()
         loadDefaults()
+        loadTools()
+        chatManager.toolApprovalCallback = { toolCalls ->
+            val deferred = CompletableDeferred<Boolean>()
+            toolApprovalDeferred = deferred
+            _uiState.update { it.copy(pendingToolCalls = toolCalls) }
+            deferred.await()
+        }
     }
 
     fun loadConversation(conversationId: String?) {
@@ -166,6 +178,39 @@ class ChatViewModel(
         _uiState.update { it.copy(showConversationSettings = false) }
     }
 
+    private fun loadTools() {
+        viewModelScope.launch {
+            toolDefinitionDao?.getAll()?.collect { tools ->
+                _uiState.update { it.copy(availableTools = tools) }
+            }
+        }
+    }
+
+    fun approveToolCalls() {
+        _uiState.update { it.copy(pendingToolCalls = emptyList()) }
+        toolApprovalDeferred?.complete(true)
+        toolApprovalDeferred = null
+    }
+
+    fun declineToolCalls() {
+        _uiState.update { it.copy(pendingToolCalls = emptyList()) }
+        toolApprovalDeferred?.complete(false)
+        toolApprovalDeferred = null
+    }
+
+    fun toggleTool(toolId: String, enabled: Boolean) {
+        val conversationId = _uiState.value.conversationId ?: return
+        viewModelScope.launch {
+            toolDefinitionDao?.setConversationToolEnabled(
+                ConversationToolEnabledEntity(
+                    conversationId = conversationId,
+                    toolDefinitionId = toolId,
+                    isEnabled = enabled,
+                )
+            )
+        }
+    }
+
     private fun resolvedParams(): ResolvedParams {
         val state = _uiState.value
         val conv = state.conversationParams
@@ -245,7 +290,7 @@ class ChatViewModel(
                     }
                     is StreamState.Complete -> {
                         _uiState.update {
-                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "", toolCallResults = emptyMap())
                         }
                         observeConversation(conversationId)
                         if (isFirstMessage) {
@@ -256,6 +301,17 @@ class ChatViewModel(
                     is StreamState.Error -> {
                         _uiState.update {
                             it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                        }
+                    }
+                    is StreamState.ToolCallsPending -> {
+                        _uiState.update { it.copy(currentStreamingContent = "") }
+                    }
+                    is StreamState.ToolCallResult -> {
+                        _uiState.update {
+                            it.copy(
+                                toolCallResults = it.toolCallResults + (streamState.toolName to streamState.result),
+                                currentStreamingContent = "",
+                            )
                         }
                     }
                 }
@@ -333,6 +389,14 @@ class ChatViewModel(
                     is StreamState.Error -> {
                         _uiState.update {
                             it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                        }
+                    }
+                    is StreamState.ToolCallsPending -> {
+                        _uiState.update { it.copy(currentStreamingContent = "") }
+                    }
+                    is StreamState.ToolCallResult -> {
+                        _uiState.update {
+                            it.copy(toolCallResults = it.toolCallResults + (streamState.toolName to streamState.result))
                         }
                     }
                 }

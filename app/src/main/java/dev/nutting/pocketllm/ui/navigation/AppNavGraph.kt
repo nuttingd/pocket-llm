@@ -46,6 +46,7 @@ fun AppNavGraph(
                     messageRepository = container.messageRepository,
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
+                    toolDefinitionDao = container.toolDefinitionDao,
                 )
             }
             ChatScreen(
@@ -76,6 +77,7 @@ fun AppNavGraph(
                     messageRepository = container.messageRepository,
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
+                    toolDefinitionDao = container.toolDefinitionDao,
                 )
             }
             ChatScreen(

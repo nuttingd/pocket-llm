@@ -255,15 +255,15 @@
 
 ### Implementation
 
-- [ ] T074 [P] [US7] Create `ToolDefinitionEntity.kt`, `ConversationToolEnabledEntity.kt` in `app/src/main/java/dev/nutting/pocketllm/data/local/entity/` and `ToolDefinitionDao.kt` in `dao/` per data-model.md. Add to `PocketLlmDatabase.kt` (migration to version 3). Seed built-in tools (calculator, web_fetch)
-- [ ] T075 [P] [US7] Create tool call API models `ToolCallModels.kt` in `app/src/main/java/dev/nutting/pocketllm/data/remote/model/` per contracts section 4 — `ToolDefinition`, `ToolCall`, `FunctionCall`, `ToolCallChunk`, `FunctionCallChunk`
-- [ ] T076 [P] [US7] Create `CalculatorTool.kt` in `app/src/main/java/dev/nutting/pocketllm/domain/tool/` — evaluates arithmetic expressions, returns result string
-- [ ] T077 [P] [US7] Create `WebFetchTool.kt` in `app/src/main/java/dev/nutting/pocketllm/domain/tool/` — fetches URL content using Ktor client, returns trimmed text content
-- [ ] T078 [US7] Create `ToolExecutor.kt` in `app/src/main/java/dev/nutting/pocketllm/domain/tool/` — routes tool calls to appropriate handler by name, returns result or error string
-- [ ] T079 [US7] Update `ChatManager.kt` to handle tool call responses — detect `finish_reason: "tool_calls"`, parse tool calls from accumulated chunks, emit `StreamState.ToolCallsPending` with tool call details, wait for approval signal, execute via `ToolExecutor`, send tool results as `role: "tool"` messages, resume streaming. Handle parallel tool calls (FR-047)
-- [ ] T080 [US7] Create `ToolCallCard.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/chat/` — M3 Card displaying tool name, arguments (formatted JSON), Approve/Decline buttons, execution status (pending/running/complete/error), result preview. `contentDescription` for accessibility
-- [ ] T081 [US7] Update `ChatScreen.kt` to render `ToolCallCard` for tool call messages, wire approve/decline buttons to `ChatViewModel`
-- [ ] T082 [US7] Add tool configuration to `ConversationSettingsSheet.kt` — list of available tools with enable/disable toggles per conversation (FR-046)
+- [X] T074 [P] [US7] Create `ToolDefinitionEntity.kt`, `ConversationToolEnabledEntity.kt` in `app/src/main/java/dev/nutting/pocketllm/data/local/entity/` and `ToolDefinitionDao.kt` in `dao/` per data-model.md. Add to `PocketLlmDatabase.kt` (migration to version 3). Seed built-in tools (calculator, web_fetch)
+- [X] T075 [P] [US7] Create tool call API models `ToolCallModels.kt` in `app/src/main/java/dev/nutting/pocketllm/data/remote/model/` per contracts section 4 — `ToolDefinition`, `ToolCall`, `FunctionCall`, `ToolCallChunk`, `FunctionCallChunk`
+- [X] T076 [P] [US7] Create `CalculatorTool.kt` in `app/src/main/java/dev/nutting/pocketllm/domain/tool/` — evaluates arithmetic expressions, returns result string
+- [X] T077 [P] [US7] Create `WebFetchTool.kt` in `app/src/main/java/dev/nutting/pocketllm/domain/tool/` — fetches URL content using Ktor client, returns trimmed text content
+- [X] T078 [US7] Create `ToolExecutor.kt` in `app/src/main/java/dev/nutting/pocketllm/domain/tool/` — routes tool calls to appropriate handler by name, returns result or error string
+- [X] T079 [US7] Update `ChatManager.kt` to handle tool call responses — detect `finish_reason: "tool_calls"`, parse tool calls from accumulated chunks, emit `StreamState.ToolCallsPending` with tool call details, wait for approval signal, execute via `ToolExecutor`, send tool results as `role: "tool"` messages, resume streaming. Handle parallel tool calls (FR-047)
+- [X] T080 [US7] Create `ToolCallCard.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/chat/` — M3 Card displaying tool name, arguments (formatted JSON), Approve/Decline buttons, execution status (pending/running/complete/error), result preview. `contentDescription` for accessibility
+- [X] T081 [US7] Update `ChatScreen.kt` to render `ToolCallCard` for tool call messages, wire approve/decline buttons to `ChatViewModel`
+- [X] T082 [US7] Add tool configuration to `ConversationSettingsSheet.kt` — list of available tools with enable/disable toggles per conversation (FR-046)
 
 **Checkpoint**: Tool calling round-trip works end-to-end with user approval.
 

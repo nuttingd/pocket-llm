@@ -8,16 +8,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 import kotlin.math.roundToInt
 
 data class ConversationParameters(
@@ -37,6 +43,8 @@ fun ConversationSettingsSheet(
     onParamsChanged: (ConversationParameters) -> Unit,
     onResetToDefaults: () -> Unit,
     onDismiss: () -> Unit,
+    availableTools: List<ToolDefinitionEntity> = emptyList(),
+    onToggleTool: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -115,6 +123,34 @@ fun ConversationSettingsSheet(
                 format = { "%.1f".format(it) },
                 onValueChange = { onParamsChanged(params.copy(presencePenalty = (it * 10).roundToInt() / 10f)) },
             )
+
+            if (availableTools.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Text("Tools", style = MaterialTheme.typography.titleSmall)
+                availableTools.forEach { tool ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(tool.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                tool.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = tool.isEnabledByDefault,
+                            onCheckedChange = { onToggleTool(tool.id, it) },
+                            modifier = Modifier.semantics { contentDescription = "Toggle ${tool.name}" },
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
         }

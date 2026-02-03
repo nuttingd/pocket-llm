@@ -2,8 +2,9 @@ package dev.nutting.pocketllm.ui.chat
 
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
+import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
-import dev.nutting.pocketllm.ui.chat.ConversationParameters
+import dev.nutting.pocketllm.data.remote.model.ToolCall
 
 data class ChatUiState(
     val messages: List<MessageEntity> = emptyList(),
@@ -22,4 +23,7 @@ data class ChatUiState(
     val showConversationSettings: Boolean = false,
     val estimatedTokensUsed: Int = 0,
     val compactionThresholdPct: Int = 75,
+    val pendingToolCalls: List<ToolCall> = emptyList(),
+    val toolCallResults: Map<String, String> = emptyMap(),
+    val availableTools: List<ToolDefinitionEntity> = emptyList(),
 )

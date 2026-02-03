@@ -100,6 +100,8 @@ fun ChatScreen(
             onParamsChanged = viewModel::updateConversationParams,
             onResetToDefaults = viewModel::resetConversationParamsToDefaults,
             onDismiss = viewModel::dismissConversationSettings,
+            availableTools = state.availableTools,
+            onToggleTool = viewModel::toggleTool,
         )
     }
 
@@ -202,6 +204,8 @@ fun ChatScreen(
                     },
                     onRegenerate = viewModel::regenerateMessage,
                     onDelete = viewModel::deleteMessage,
+                    onApproveToolCalls = viewModel::approveToolCalls,
+                    onDeclineToolCalls = viewModel::declineToolCalls,
                 )
             }
         }
@@ -242,6 +246,8 @@ private fun ChatContent(
     onCopy: (String) -> Unit = {},
     onRegenerate: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
     onDelete: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
+    onApproveToolCalls: (() -> Unit)? = null,
+    onDeclineToolCalls: (() -> Unit)? = null,
 ) {
     if (state.messages.isEmpty() && !state.isStreaming) {
         Box(
@@ -270,6 +276,18 @@ private fun ChatContent(
             if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
                 item(key = "streaming") {
                     StreamingMessageBubble(content = state.currentStreamingContent)
+                }
+            }
+            if (state.pendingToolCalls.isNotEmpty()) {
+                items(state.pendingToolCalls, key = { it.id }) { toolCall ->
+                    ToolCallCard(
+                        toolCall = toolCall,
+                        status = state.toolCallResults[toolCall.function.name]?.let {
+                            ToolCallStatus.Complete(it)
+                        } ?: ToolCallStatus.Pending,
+                        onApprove = onApproveToolCalls,
+                        onDecline = onDeclineToolCalls,
+                    )
                 }
             }
         }
