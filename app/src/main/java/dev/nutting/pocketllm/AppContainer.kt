@@ -41,5 +41,6 @@ class AppContainer(context: Context) {
         conversationRepository = conversationRepository,
         messageRepository = messageRepository,
         apiClient = apiClient,
+        compactionSummaryDao = database.compactionSummaryDao(),
     )
 }

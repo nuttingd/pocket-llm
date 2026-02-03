@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.domain
 
+import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.remote.OpenAiApiClient
@@ -7,9 +8,11 @@ import dev.nutting.pocketllm.data.remote.model.ChatCompletionRequest
 import dev.nutting.pocketllm.data.remote.model.ChatContent
 import dev.nutting.pocketllm.data.remote.model.ChatMessage
 import dev.nutting.pocketllm.data.remote.model.Usage
+import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
+import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +32,7 @@ class ChatManager(
     private val conversationRepository: ConversationRepository,
     private val messageRepository: MessageRepository,
     private val apiClient: OpenAiApiClient,
+    private val compactionSummaryDao: CompactionSummaryDao? = null,
 ) {
     private var currentJob: Job? = null
 
@@ -73,11 +77,50 @@ class ChatManager(
 
             // Build message list from active branch
             val branchMessages = messageRepository.getActiveBranch(userMessage.id).first()
+
+            // Check if compaction is needed
+            val contextWindow = (maxTokens ?: 2048) * 4
+            val estimatedTokens = TokenCounter.estimateTokens(branchMessages)
+            val compactionThreshold = (contextWindow * 0.75).toInt()
+
+            val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4) {
+                // Attempt auto-compaction: summarize older messages
+                val messagesToCompact = branchMessages.dropLast(4) // Keep recent 4
+                val recentMessages = branchMessages.takeLast(4)
+
+                val summary = tryCompactMessages(
+                    messagesToCompact = messagesToCompact,
+                    conversationId = conversationId,
+                    baseUrl = server.baseUrl,
+                    apiKey = apiKey,
+                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                    modelId = modelId,
+                )
+
+                if (summary != null) {
+                    // Use summary + recent messages
+                    listOf(
+                        MessageEntity(
+                            id = "compaction-summary",
+                            conversationId = conversationId,
+                            role = "system",
+                            content = "Previous conversation summary: $summary",
+                            depth = 0,
+                            createdAt = System.currentTimeMillis(),
+                        )
+                    ) + recentMessages
+                } else {
+                    branchMessages // Compaction failed, use full branch
+                }
+            } else {
+                branchMessages
+            }
+
             val chatMessages = buildList {
                 systemPrompt?.takeIf { it.isNotBlank() }?.let {
                     add(ChatMessage(role = "system", content = ChatContent.Text(it)))
                 }
-                branchMessages.forEach { msg ->
+                effectiveMessages.forEach { msg ->
                     add(ChatMessage(role = msg.role, content = ChatContent.Text(msg.content)))
                 }
             }
@@ -157,6 +200,85 @@ class ChatManager(
             emit(StreamState.Complete(assistantMessage))
         } catch (e: Exception) {
             emit(StreamState.Error(e.message ?: "Unknown error"))
+        }
+    }
+
+    suspend fun compactConversation(
+        conversationId: String,
+        serverId: String,
+        modelId: String,
+    ): String? {
+        val conversation = conversationRepository.getById(conversationId).first() ?: return null
+        val leafId = conversation.activeLeafMessageId ?: return null
+        val branchMessages = messageRepository.getActiveBranch(leafId).first()
+        if (branchMessages.size <= 4) return null
+
+        val server = serverRepository.getById(serverId).first() ?: return null
+        val apiKey = if (server.hasApiKey) serverRepository.getApiKey(serverId).first() else null
+
+        val messagesToCompact = branchMessages.dropLast(4)
+        return tryCompactMessages(
+            messagesToCompact = messagesToCompact,
+            conversationId = conversationId,
+            baseUrl = server.baseUrl,
+            apiKey = apiKey,
+            timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+            modelId = modelId,
+        )
+    }
+
+    private suspend fun tryCompactMessages(
+        messagesToCompact: List<MessageEntity>,
+        conversationId: String,
+        baseUrl: String,
+        apiKey: String?,
+        timeoutSeconds: Long,
+        modelId: String,
+    ): String? {
+        if (messagesToCompact.isEmpty()) return null
+
+        val conversationText = messagesToCompact.joinToString("\n") { "${it.role}: ${it.content}" }
+        val request = ChatCompletionRequest(
+            model = modelId,
+            messages = listOf(
+                ChatMessage(
+                    role = "system",
+                    content = ChatContent.Text(
+                        "Summarize the following conversation concisely, preserving key facts, decisions, and context needed to continue the conversation coherently. Respond with only the summary."
+                    ),
+                ),
+                ChatMessage(
+                    role = "user",
+                    content = ChatContent.Text(conversationText),
+                ),
+            ),
+            maxTokens = 500,
+            temperature = 0.3f,
+            stream = false,
+        )
+
+        return try {
+            val response = apiClient.chatCompletion(
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                timeoutSeconds = timeoutSeconds,
+                request = request,
+            )
+            val summary = response.choices.firstOrNull()?.message?.content?.trim()
+            if (summary != null) {
+                compactionSummaryDao?.insert(
+                    CompactionSummaryEntity(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        summary = summary,
+                        compactedMessageCount = messagesToCompact.size,
+                        createdAt = System.currentTimeMillis(),
+                    )
+                )
+            }
+            summary
+        } catch (_: Exception) {
+            null
         }
     }
 
