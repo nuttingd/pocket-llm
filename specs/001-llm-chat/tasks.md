@@ -214,10 +214,10 @@
 
 ### Implementation
 
-- [ ] T063 [P] [US5] Create `CompactionSummaryEntity.kt` in `app/src/main/java/dev/nutting/pocketllm/data/local/entity/` and `CompactionSummaryDao.kt` in `dao/` per data-model.md. Add entity to `PocketLlmDatabase.kt` (migration to version 2)
-- [ ] T064 [US5] Implement compaction logic in `ChatManager.kt` — before sending, check estimated tokens vs 75% of context window. If threshold exceeded: select oldest messages, send compaction prompt to LLM ("Summarize the following conversation..."), save `CompactionSummaryEntity`, rebuild message list with summary replacing compacted messages
-- [ ] T065 [US5] Add manual compaction trigger — menu item in `ChatScreen.kt` TopAppBar overflow menu, calls `ChatManager.compactConversation(conversationId)`
-- [ ] T066 [US5] Add compaction visual indicator in `ChatScreen.kt` — special `CompactionBubble` composable inserted at compaction points in the message list, showing "Earlier messages summarized" with expandable summary text (FR-033)
+- [X] T063 [P] [US5] Create `CompactionSummaryEntity.kt` in `app/src/main/java/dev/nutting/pocketllm/data/local/entity/` and `CompactionSummaryDao.kt` in `dao/` per data-model.md. Add entity to `PocketLlmDatabase.kt` (migration to version 2)
+- [X] T064 [US5] Implement compaction logic in `ChatManager.kt` — before sending, check estimated tokens vs 75% of context window. If threshold exceeded: select oldest messages, send compaction prompt to LLM ("Summarize the following conversation..."), save `CompactionSummaryEntity`, rebuild message list with summary replacing compacted messages
+- [X] T065 [US5] Add manual compaction trigger — menu item in `ChatScreen.kt` TopAppBar overflow menu, calls `ChatManager.compactConversation(conversationId)`
+- [X] T066 [US5] Add compaction visual indicator in `ChatScreen.kt` — special `CompactionBubble` composable inserted at compaction points in the message list, showing "Earlier messages summarized" with expandable summary text (FR-033)
 
 **Checkpoint**: Compaction works automatically and manually. Long conversations continue coherently after compaction.
 
