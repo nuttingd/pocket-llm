@@ -25,6 +25,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import android.content.Intent
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +71,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -154,6 +156,18 @@ fun ChatScreen(
                         ChatOverflowMenu(
                             onNavigateToSettings = onNavigateToSettings,
                             onCompact = viewModel::compactConversation,
+                            onShare = {
+                                scope.launch {
+                                    val markdown = viewModel.exportConversation()
+                                    if (markdown != null) {
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, markdown)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Share conversation"))
+                                    }
+                                }
+                            },
                         )
                     },
                 )
@@ -266,6 +280,7 @@ private fun ChatContent(
 private fun ChatOverflowMenu(
     onNavigateToSettings: () -> Unit,
     onCompact: () -> Unit,
+    onShare: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -277,6 +292,13 @@ private fun ChatOverflowMenu(
             Icon(Icons.Default.MoreVert, contentDescription = null)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Share conversation") },
+                onClick = {
+                    expanded = false
+                    onShare()
+                },
+            )
             DropdownMenuItem(
                 text = { Text("Compact conversation") },
                 onClick = {

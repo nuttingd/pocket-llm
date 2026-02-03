@@ -356,6 +356,11 @@ class ChatViewModel(
         }
     }
 
+    suspend fun exportConversation(): String? {
+        val conversationId = _uiState.value.conversationId ?: return null
+        return conversationRepository.exportAsMarkdown(conversationId, messageRepository)
+    }
+
     fun compactConversation() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
