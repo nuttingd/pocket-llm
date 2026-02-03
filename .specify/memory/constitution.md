@@ -112,7 +112,7 @@ justification.
 - **UI**: Jetpack Compose with Compose BOM for version alignment
 - **Build**: Gradle with Kotlin DSL, single `app/` module
 - **CI**: GitHub Actions, semantic-release on `main`
-- **Package**: `dev.nutting.template` (to be renamed per feature needs)
+- **Package**: `dev.nutting.pocketllm`
 - **Secrets**: API keys and credentials MUST NOT be committed. Use
   `keystore.properties` (gitignored) or environment variables.
 

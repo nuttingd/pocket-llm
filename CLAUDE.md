@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Template Android app using Jetpack Compose and Material 3. Clone and build to get a working app immediately.
+Private LLM chat client for Android. Connects to any OpenAI-compatible API (Ollama, LM Studio, OpenAI, etc.) with streaming, conversation management, tool calling, and per-conversation model selection.
 
 ## Build & Test Commands
 
@@ -22,7 +22,7 @@ Requires JDK 21 and Android SDK 36. Min SDK is 28.
 
 Single-module Android app (`app/`) using MVVM with Jetpack Compose.
 
-**Package:** `dev.nutting.template`
+**Package:** `dev.nutting.pocketllm`
 
 ## Key Patterns
 
