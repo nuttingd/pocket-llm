@@ -2,12 +2,26 @@ package dev.nutting.pocketllm.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,10 +40,17 @@ import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: MessageEntity,
     modifier: Modifier = Modifier,
+    onCopy: ((String) -> Unit)? = null,
+    onRegenerate: ((MessageEntity) -> Unit)? = null,
+    onEdit: ((MessageEntity) -> Unit)? = null,
+    onDelete: ((MessageEntity) -> Unit)? = null,
+    branchInfo: BranchInfo? = null,
+    onNavigateBranch: ((String, Int) -> Unit)? = null,
 ) {
     val isUser = message.role == "user"
     val alignment = if (isUser) Alignment.End else Alignment.Start
@@ -56,22 +77,29 @@ fun MessageBubble(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
         )
-        Surface(
-            color = containerColor,
-            contentColor = contentColor,
-            shape = RoundedCornerShape(
-                topStart = if (isUser) 16.dp else 4.dp,
-                topEnd = if (isUser) 4.dp else 16.dp,
-                bottomStart = 16.dp,
-                bottomEnd = 16.dp,
-            ),
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .semantics {
-                    contentDescription = "${if (isUser) "You" else "Assistant"}: ${message.content}"
-                },
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+        var showMenu by remember { mutableStateOf(false) }
+
+        Box {
+            Surface(
+                color = containerColor,
+                contentColor = contentColor,
+                shape = RoundedCornerShape(
+                    topStart = if (isUser) 16.dp else 4.dp,
+                    topEnd = if (isUser) 4.dp else 16.dp,
+                    bottomStart = 16.dp,
+                    bottomEnd = 16.dp,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = { showMenu = true },
+                    )
+                    .semantics {
+                        contentDescription = "${if (isUser) "You" else "Assistant"}: ${message.content}"
+                    },
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
                 if (!isUser && message.thinkingContent != null) {
                     ThinkingSection(
                         thinkingContent = message.thinkingContent,
@@ -94,6 +122,98 @@ fun MessageBubble(
                     TokenUsageFooter(message = message)
                 }
             }
+        }
+
+            MessageActionMenu(
+                expanded = showMenu,
+                onDismiss = { showMenu = false },
+                isUser = isUser,
+                onCopy = { onCopy?.invoke(message.content); showMenu = false },
+                onRegenerate = { onRegenerate?.invoke(message); showMenu = false },
+                onEdit = { onEdit?.invoke(message); showMenu = false },
+                onDelete = { onDelete?.invoke(message); showMenu = false },
+            )
+        }
+
+        if (branchInfo != null && branchInfo.totalSiblings > 1) {
+            BranchNavigator(
+                branchInfo = branchInfo,
+                onNavigate = { offset -> onNavigateBranch?.invoke(message.parentMessageId ?: "", offset) },
+            )
+        }
+    }
+}
+
+data class BranchInfo(
+    val currentIndex: Int,
+    val totalSiblings: Int,
+)
+
+@Composable
+private fun MessageActionMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    isUser: Boolean,
+    onCopy: () -> Unit,
+    onRegenerate: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text("Copy") },
+            onClick = onCopy,
+            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(20.dp)) },
+        )
+        if (!isUser) {
+            DropdownMenuItem(
+                text = { Text("Regenerate") },
+                onClick = onRegenerate,
+                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            )
+        }
+        if (isUser) {
+            DropdownMenuItem(
+                text = { Text("Edit") },
+                onClick = onEdit,
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Delete") },
+            onClick = onDelete,
+            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(20.dp)) },
+        )
+    }
+}
+
+@Composable
+private fun BranchNavigator(
+    branchInfo: BranchInfo,
+    onNavigate: (Int) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth(0.85f),
+    ) {
+        IconButton(
+            onClick = { onNavigate(-1) },
+            enabled = branchInfo.currentIndex > 0,
+            modifier = Modifier.semantics { contentDescription = "Previous branch" },
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+        }
+        Text(
+            "${branchInfo.currentIndex + 1} of ${branchInfo.totalSiblings}",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        IconButton(
+            onClick = { onNavigate(1) },
+            enabled = branchInfo.currentIndex < branchInfo.totalSiblings - 1,
+            modifier = Modifier.semantics { contentDescription = "Next branch" },
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
         }
     }
 }
