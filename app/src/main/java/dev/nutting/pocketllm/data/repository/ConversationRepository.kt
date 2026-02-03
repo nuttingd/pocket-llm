@@ -3,6 +3,7 @@ package dev.nutting.pocketllm.data.repository
 import dev.nutting.pocketllm.data.local.dao.ConversationDao
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 class ConversationRepository(
     private val dao: ConversationDao,
@@ -20,6 +21,30 @@ class ConversationRepository(
 
     suspend fun updateActiveLeaf(id: String, leafId: String?) =
         dao.updateActiveLeaf(id, leafId, System.currentTimeMillis())
+
+    suspend fun exportAsMarkdown(id: String, messageRepository: MessageRepository): String {
+        val conversation = dao.getById(id).first() ?: return ""
+        val leafId = conversation.activeLeafMessageId ?: return "# ${conversation.title}\n\n*No messages*\n"
+        val messages = messageRepository.getActiveBranch(leafId).first()
+
+        return buildString {
+            appendLine("# ${conversation.title}")
+            appendLine()
+            messages.forEach { msg ->
+                val role = when (msg.role) {
+                    "user" -> "**You**"
+                    "assistant" -> "**Assistant**"
+                    else -> "**${msg.role}**"
+                }
+                appendLine("$role:")
+                appendLine()
+                appendLine(msg.content)
+                appendLine()
+                appendLine("---")
+                appendLine()
+            }
+        }
+    }
 
     suspend fun updateParameters(
         id: String,
