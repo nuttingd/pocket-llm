@@ -4,13 +4,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -91,8 +91,10 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    LaunchedEffect(state.messages.size, state.currentStreamingContent) {
-        val totalItems = state.messages.size + if (state.isStreaming) 1 else 0
+    // Scroll to new messages. During streaming, scroll once to anchor the
+    // streaming bubble at the top of the viewport, then leave scrolling to the user.
+    LaunchedEffect(state.messages.size, state.isStreaming) {
+        val totalItems = listState.layoutInfo.totalItemsCount
         if (totalItems > 0) {
             listState.animateScrollToItem(totalItems - 1)
         }
@@ -148,6 +150,7 @@ fun ChatScreen(
         },
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
             topBar = {
                 TopAppBar(
                     navigationIcon = {
@@ -207,9 +210,7 @@ fun ChatScreen(
                     isStreaming = state.isStreaming,
                     onSendMessage = viewModel::sendMessage,
                     onStopGeneration = viewModel::stopGeneration,
-                    modifier = Modifier
-                        .imePadding()
-                        .windowInsetsPadding(WindowInsets.navigationBars),
+                    modifier = Modifier,
                     onSendMessageWithImages = { text, uris ->
                         viewModel.sendMessageWithImages(text, uris, context)
                     },
