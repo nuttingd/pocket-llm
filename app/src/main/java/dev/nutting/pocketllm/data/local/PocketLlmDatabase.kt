@@ -64,7 +64,7 @@ abstract class PocketLlmDatabase : RoomDatabase() {
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`, tokenizer=simple)"
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`)"
                 )
                 db.execSQL(
                     """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE BEFORE UPDATE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
@@ -159,7 +159,7 @@ abstract class PocketLlmDatabase : RoomDatabase() {
                 db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_AFTER_INSERT")
                 db.execSQL("DROP TABLE IF EXISTS `message_fts`")
                 db.execSQL(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`, tokenizer=simple)"
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `message_fts` USING FTS4(`content`, content=`messages`)"
                 )
                 db.execSQL(
                     """CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE BEFORE UPDATE ON `messages` BEGIN DELETE FROM `message_fts` WHERE `docid`=OLD.`rowid`; END"""
