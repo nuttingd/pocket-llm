@@ -279,9 +279,9 @@
 
 ### Implementation
 
-- [ ] T083 [US13] Update `ChatManager.kt` streaming logic to detect thinking content — check for `reasoning_content` field in `Delta`, check for `<think>...</think>` tags in content, extract into separate `thinkingContent` accumulator, save to `Message.thinkingContent` per contracts section 5
-- [ ] T084 [US13] Create `ThinkingSection.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/chat/` — M3 collapsible section (AnimatedVisibility) showing "Thinking..." header with expand/collapse chevron, displays thinking content when expanded. Collapsed by default. Only rendered when `message.thinkingContent` is non-null (FR-018)
-- [ ] T085 [US13] Update `MessageBubble.kt` to include `ThinkingSection` above the main content for assistant messages with thinking content
+- [X] T083 [US13] Update `ChatManager.kt` streaming logic to detect thinking content — check for `reasoning_content` field in `Delta`, check for `<think>...</think>` tags in content, extract into separate `thinkingContent` accumulator, save to `Message.thinkingContent` per contracts section 5
+- [X] T084 [US13] Create `ThinkingSection.kt` in `app/src/main/java/dev/nutting/pocketllm/ui/chat/` — M3 collapsible section (AnimatedVisibility) showing "Thinking..." header with expand/collapse chevron, displays thinking content when expanded. Collapsed by default. Only rendered when `message.thinkingContent` is non-null (FR-018)
+- [X] T085 [US13] Update `MessageBubble.kt` to include `ThinkingSection` above the main content for assistant messages with thinking content
 
 **Checkpoint**: Reasoning content displayed in collapsible sections without cluttering the main response.
 
