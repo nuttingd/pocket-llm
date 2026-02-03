@@ -23,6 +23,14 @@ class MessageRepository(
     fun getConversationRootMessages(conversationId: String): Flow<List<MessageEntity>> =
         dao.getConversationRootMessages(conversationId)
 
+    suspend fun updateContent(id: String, content: String) {
+        dao.updateContent(id, content)
+    }
+
+    suspend fun deleteMessagesAfterDepth(conversationId: String, depth: Int) {
+        dao.deleteMessagesAfterDepth(conversationId, depth)
+    }
+
     suspend fun deleteMessage(id: String) {
         val message = dao.getById(id) ?: return
         message.parentMessageId?.let { dao.decrementChildCount(it) }

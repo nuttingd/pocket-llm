@@ -30,4 +30,5 @@ data class ChatUiState(
     val availableTools: List<ToolDefinitionEntity> = emptyList(),
     val presets: List<ParameterPresetEntity> = emptyList(),
     val messageFontSizeSp: Int = 16,
+    val editingMessage: MessageEntity? = null,
 )

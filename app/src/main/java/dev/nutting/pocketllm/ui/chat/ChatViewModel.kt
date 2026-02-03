@@ -476,6 +476,26 @@ class ChatViewModel(
         }
     }
 
+    fun startEditMessage(message: MessageEntity) {
+        _uiState.update { it.copy(editingMessage = message) }
+    }
+
+    fun cancelEditMessage() {
+        _uiState.update { it.copy(editingMessage = null) }
+    }
+
+    fun confirmEditMessage(newContent: String) {
+        val message = _uiState.value.editingMessage ?: return
+        _uiState.update { it.copy(editingMessage = null) }
+
+        viewModelScope.launch {
+            messageRepository.updateContent(message.id, newContent)
+            messageRepository.deleteMessagesAfterDepth(message.conversationId, message.depth)
+            conversationRepository.updateActiveLeaf(message.conversationId, message.id)
+            observeConversation(message.conversationId)
+        }
+    }
+
     fun deleteMessage(message: MessageEntity) {
         viewModelScope.launch {
             val conversationId = message.conversationId

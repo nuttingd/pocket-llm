@@ -47,6 +47,12 @@ interface MessageDao {
     @Query("UPDATE messages SET childCount = childCount - 1 WHERE id = :parentId")
     suspend fun decrementChildCount(parentId: String)
 
+    @Query("UPDATE messages SET content = :content WHERE id = :id")
+    suspend fun updateContent(id: String, content: String)
+
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND depth > :depth")
+    suspend fun deleteMessagesAfterDepth(conversationId: String, depth: Int)
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteById(id: String)
 

@@ -28,7 +28,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.content.Intent
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -93,6 +95,15 @@ fun ChatScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.dismissError()
         }
+    }
+
+    val editingMessage = state.editingMessage
+    if (editingMessage != null) {
+        EditMessageDialog(
+            originalContent = editingMessage.content,
+            onConfirm = viewModel::confirmEditMessage,
+            onDismiss = viewModel::cancelEditMessage,
+        )
     }
 
     if (state.showConversationSettings) {
@@ -211,6 +222,7 @@ fun ChatScreen(
                         scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
                     },
                     onRegenerate = viewModel::regenerateMessage,
+                    onEdit = viewModel::startEditMessage,
                     onDelete = viewModel::deleteMessage,
                     onApproveToolCalls = viewModel::approveToolCalls,
                     onDeclineToolCalls = viewModel::declineToolCalls,
@@ -411,4 +423,39 @@ private fun ServerModelSelector(
             }
         }
     }
+}
+
+@Composable
+private fun EditMessageDialog(
+    originalContent: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var editedText by remember { mutableStateOf(originalContent) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit message") },
+        text = {
+            OutlinedTextField(
+                value = editedText,
+                onValueChange = { editedText = it },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 10,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(editedText.trim()) },
+                enabled = editedText.isNotBlank(),
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
