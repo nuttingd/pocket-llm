@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.ui.chat
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
@@ -25,7 +26,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -40,6 +46,14 @@ class ChatViewModel(
     private val parameterPresetDao: ParameterPresetDao? = null,
     private val compactionSummaryDao: CompactionSummaryDao? = null,
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "ChatViewModel"
+        private val VISION_MODEL_KEYWORDS = listOf(
+            "vision", "llava", "bakllava", "cogvlm", "fuyu",
+            "obsidian", "moondream", "minicpm-v", "internvl",
+        )
+    }
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -142,31 +156,42 @@ class ChatViewModel(
                     )
                 }
             } catch (e: ApiException) {
+                Log.e(TAG, "Failed to load models (API)", e)
                 _uiState.update { it.copy(error = e.message, isLoadingModels = false) }
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to load models", e)
                 _uiState.update { it.copy(error = "Failed to load models: ${e.message}", isLoadingModels = false) }
             }
         }
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun observeConversation(conversationId: String) {
         messagesJob?.cancel()
         messagesJob = viewModelScope.launch {
-            val conversation = conversationRepository.getById(conversationId).first()
-            if (conversation != null) {
-                _uiState.update { it.copy(conversationTitle = conversation.title) }
-                val leafId = conversation.activeLeafMessageId
-                if (leafId != null) {
-                    messageRepository.getActiveBranch(leafId).collect { messages ->
-                        _uiState.update {
-                            it.copy(
-                                messages = messages,
-                                estimatedTokensUsed = TokenCounter.estimateTokens(messages),
-                            )
-                        }
+            conversationRepository.getById(conversationId)
+                .map { conv ->
+                    conv?.let { it.title to it.activeLeafMessageId }
+                }
+                .distinctUntilChanged()
+                .flatMapLatest { pair ->
+                    if (pair == null) return@flatMapLatest flowOf(emptyList<MessageEntity>())
+                    val (title, leafId) = pair
+                    _uiState.update { it.copy(conversationTitle = title) }
+                    if (leafId != null) {
+                        messageRepository.getActiveBranch(leafId)
+                    } else {
+                        flowOf(emptyList())
                     }
                 }
-            }
+                .collectLatest { messages ->
+                    _uiState.update {
+                        it.copy(
+                            messages = messages,
+                            estimatedTokensUsed = TokenCounter.estimateTokens(messages),
+                        )
+                    }
+                }
         }
         viewModelScope.launch {
             compactionSummaryDao?.getByConversationId(conversationId)?.collect { summaries ->
@@ -385,6 +410,7 @@ class ChatViewModel(
                         }
                     }
                     is StreamState.Error -> {
+                        Log.e(TAG, "Stream error: ${streamState.error}")
                         _uiState.update {
                             it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
                         }
@@ -421,8 +447,10 @@ class ChatViewModel(
                     it.copy(availableModels = models, selectedModelId = models.firstOrNull()?.id, isLoadingModels = false)
                 }
             } catch (e: ApiException) {
+                Log.e(TAG, "Failed to switch server (API)", e)
                 _uiState.update { it.copy(error = e.message, isLoadingModels = false) }
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to switch server", e)
                 _uiState.update { it.copy(error = "Failed to load models: ${e.message}", isLoadingModels = false) }
             }
         }
@@ -475,6 +503,7 @@ class ChatViewModel(
                         observeConversation(message.conversationId)
                     }
                     is StreamState.Error -> {
+                        Log.e(TAG, "Regeneration stream error: ${streamState.error}")
                         _uiState.update {
                             it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
                         }
@@ -541,6 +570,7 @@ class ChatViewModel(
                     outputStream.write(markdown.toByteArray())
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to save file", e)
                 _uiState.update { it.copy(error = "Failed to save file: ${e.message}") }
             }
         }
@@ -617,12 +647,6 @@ class ChatViewModel(
         }
     }
 
-    companion object {
-        private val VISION_MODEL_KEYWORDS = listOf(
-            "vision", "llava", "bakllava", "cogvlm", "fuyu",
-            "obsidian", "moondream", "minicpm-v", "internvl",
-        )
-    }
 }
 
 private data class ResolvedParams(

@@ -1,12 +1,10 @@
 <!--
   Sync Impact Report
   ===================
-  Version change: 1.0.0 → 1.1.0
-  Modified principles:
-    - III. Test Coverage: refined to emphasize value over volume
+  Version change: 1.1.0 → 1.2.0
+  Modified principles: none
   Added sections:
-    - VI. BDD Spec-Driven Development (new principle)
-    - VII. Polished Material Design UX (new principle)
+    - VIII. Debuggable Error Handling (new principle)
   Removed sections: none
   Templates requiring updates:
     - .specify/templates/plan-template.md ✅ no changes needed (generic gates)
@@ -91,6 +89,21 @@ and predictable back navigation. The UI MUST feel native and polished —
 not like a web wrapper or prototype. Animations MUST be purposeful and
 follow Material motion principles (container transforms, shared axis).
 
+### VIII. Debuggable Error Handling
+
+All caught exceptions that affect user-visible behavior MUST be logged
+with `android.util.Log.e()` at the point of catch, including the
+exception's stack trace (pass the exception as the third argument). Error
+messages shown to users (toasts, snackbars, UI state) MUST have a
+corresponding logcat entry at ERROR level with a tag matching the class
+name. Domain-layer error paths (e.g., `StreamState.Error` emissions)
+MUST log before emitting so errors are traceable even when the UI
+consumer changes. Debug-level logging (`Log.d()`) SHOULD be used
+sparingly for key lifecycle events: connection attempts, stream
+start/end, and state transitions. Exceptions MUST NOT be silently
+swallowed — if recovery is intentional, log at WARN level with
+justification.
+
 ## Technical Constraints
 
 - **Language**: Kotlin (version managed by Kotlin Gradle Plugin)
@@ -131,4 +144,4 @@ All code review MUST verify compliance with these principles. Complexity
 beyond what is described here MUST be justified in the plan's Complexity
 Tracking table.
 
-**Version**: 1.1.0 | **Ratified**: 2026-02-02 | **Last Amended**: 2026-02-02
+**Version**: 1.2.0 | **Ratified**: 2026-02-02 | **Last Amended**: 2026-02-02

@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.domain
 
+import android.util.Log
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
@@ -47,6 +48,10 @@ class ChatManager(
 ) {
     private var currentJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
+
+    companion object {
+        private const val TAG = "ChatManager"
+    }
 
     var toolApprovalCallback: (suspend (List<ToolCall>) -> Boolean)? = null
 
@@ -341,17 +346,19 @@ class ChatManager(
                 }
             }
         } catch (e: ApiException.StreamDisconnected) {
-            // Mid-stream disconnect: save partial content if available
+            Log.e(TAG, "Stream disconnected, partial=${e.partialContent.length} chars", e)
             if (e.partialContent.isNotBlank()) {
                 emit(StreamState.Error("Connection lost. Partial response was received."))
             } else {
                 emit(StreamState.Error(e.message ?: "Connection lost during streaming"))
             }
         } catch (e: ApiException) {
+            Log.e(TAG, "API error during chat: ${e.message}", e)
             emit(StreamState.Error(e.message ?: "Request failed"))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error during chat", e)
             emit(StreamState.Error(e.message ?: "Unknown error"))
         }
     }
@@ -459,7 +466,8 @@ class ChatManager(
                 )
             }
             summary
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Compaction failed, continuing without summary", e)
             null
         }
     }

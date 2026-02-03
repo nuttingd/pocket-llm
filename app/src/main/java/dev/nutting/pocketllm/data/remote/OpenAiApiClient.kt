@@ -5,6 +5,7 @@ import dev.nutting.pocketllm.data.remote.model.ChatCompletionRequest
 import dev.nutting.pocketllm.data.remote.model.ChatCompletionResponse
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
 import dev.nutting.pocketllm.data.remote.model.ModelsResponse
+import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -14,8 +15,8 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
+import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -24,6 +25,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readLine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import java.net.ConnectException
@@ -53,6 +55,7 @@ class OpenAiApiClient {
     }
 
     companion object {
+        private const val TAG = "OpenAiApiClient"
         private const val MAX_RETRIES = 3
         private const val INITIAL_BACKOFF_MS = 1000L
     }
@@ -89,19 +92,22 @@ class OpenAiApiClient {
         throw lastException!!
     }
 
-    private fun mapException(e: Throwable): ApiException = when (e) {
-        is ApiException -> e
-        is HttpRequestTimeoutException -> ApiException.RequestTimeout(e)
-        is UnknownHostException -> ApiException.NetworkUnavailable(e)
-        is ConnectException -> ApiException.ConnectionRefused(e.message ?: "unknown host", e)
-        is java.net.SocketTimeoutException -> ApiException.RequestTimeout(e)
-        else -> {
-            val msg = e.message ?: ""
-            when {
-                msg.contains("Unable to resolve host", ignoreCase = true) -> ApiException.NetworkUnavailable(e)
-                msg.contains("Connection refused", ignoreCase = true) -> ApiException.ConnectionRefused("server", e)
-                msg.contains("timeout", ignoreCase = true) -> ApiException.RequestTimeout(e)
-                else -> throw e
+    private fun mapException(e: Throwable): ApiException {
+        Log.e(TAG, "Mapping exception: ${e::class.simpleName}: ${e.message}", e)
+        return when (e) {
+            is ApiException -> e
+            is HttpRequestTimeoutException -> ApiException.RequestTimeout(e)
+            is UnknownHostException -> ApiException.NetworkUnavailable(e)
+            is ConnectException -> ApiException.ConnectionRefused(e.message ?: "unknown host", e)
+            is java.net.SocketTimeoutException -> ApiException.RequestTimeout(e)
+            else -> {
+                val msg = e.message ?: ""
+                when {
+                    msg.contains("Unable to resolve host", ignoreCase = true) -> ApiException.NetworkUnavailable(e)
+                    msg.contains("Connection refused", ignoreCase = true) -> ApiException.ConnectionRefused("server", e)
+                    msg.contains("timeout", ignoreCase = true) -> ApiException.RequestTimeout(e)
+                    else -> throw e
+                }
             }
         }
     }
@@ -189,40 +195,42 @@ class OpenAiApiClient {
         apiKey: String?,
         timeoutSeconds: Long = 60,
         request: ChatCompletionRequest,
-    ): Flow<ChatCompletionChunk> = flow {
+    ): Flow<ChatCompletionChunk> = channelFlow {
         val client = createClient(timeoutSeconds)
         try {
-            val response: HttpResponse = client.post("${baseUrl.trimEnd('/')}/v1/chat/completions") {
+            val statement = client.preparePost("${baseUrl.trimEnd('/')}/v1/chat/completions") {
                 contentType(ContentType.Application.Json)
                 apiKey?.let { headers { append("Authorization", "Bearer $it") } }
                 setBody(json.encodeToString(ChatCompletionRequest.serializer(), request.copy(stream = true)))
             }
-            when (response.status.value) {
-                in 200..299 -> { /* proceed to parse SSE stream */ }
-                401 -> throw ApiException.Unauthorized()
-                429 -> {
-                    val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
-                    throw ApiException.RateLimited(retryAfter)
-                }
-                400 -> {
-                    val body = response.bodyAsText()
-                    if (body.contains("context length", ignoreCase = true) || body.contains("maximum context", ignoreCase = true)) {
-                        throw ApiException.ContextLengthExceeded()
+            statement.execute { response ->
+                when (response.status.value) {
+                    in 200..299 -> { /* proceed to parse SSE stream */ }
+                    401 -> throw ApiException.Unauthorized()
+                    429 -> {
+                        val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
+                        throw ApiException.RateLimited(retryAfter)
                     }
-                    throw ApiException.ServerError(400, body.take(200))
+                    400 -> {
+                        val body = response.bodyAsText()
+                        if (body.contains("context length", ignoreCase = true) || body.contains("maximum context", ignoreCase = true)) {
+                            throw ApiException.ContextLengthExceeded()
+                        }
+                        throw ApiException.ServerError(400, body.take(200))
+                    }
+                    in 500..599 -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+                    else -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
                 }
-                in 500..599 -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
-                else -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
-            }
-            val channel = response.bodyAsChannel()
-            while (!channel.isClosedForRead) {
-                val line = channel.readLine() ?: break
-                if (line.isBlank()) continue
-                if (!line.startsWith("data:")) continue
-                val data = line.removePrefix("data:").trim()
-                if (data == "[DONE]") break
-                val chunk = json.decodeFromString<ChatCompletionChunk>(data)
-                emit(chunk)
+                val channel = response.bodyAsChannel()
+                while (!channel.isClosedForRead) {
+                    val line = channel.readLine() ?: break
+                    if (line.isBlank()) continue
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data == "[DONE]") break
+                    val chunk = json.decodeFromString<ChatCompletionChunk>(data)
+                    send(chunk)
+                }
             }
         } catch (e: ApiException) {
             throw e

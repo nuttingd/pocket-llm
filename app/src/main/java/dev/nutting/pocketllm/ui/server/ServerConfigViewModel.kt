@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.ui.server
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
@@ -17,6 +18,10 @@ class ServerConfigViewModel(
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "ServerConfigViewModel"
+    }
 
     private val _uiState = MutableStateFlow(ServerConfigUiState())
     val uiState: StateFlow<ServerConfigUiState> = _uiState.asStateFlow()
@@ -93,6 +98,7 @@ class ServerConfigViewModel(
                 settingsRepository.setLastActiveServerId(id)
                 _uiState.update { it.copy(editingServer = null, isLoading = false, isFirstLaunch = false) }
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to save server", e)
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
             }
         }
@@ -119,6 +125,7 @@ class ServerConfigViewModel(
                     }
                 },
                 onFailure = { e ->
+                    Log.e(TAG, "Connection test failed", e)
                     _uiState.update { it.copy(error = e.message, isTesting = false) }
                 },
             )
