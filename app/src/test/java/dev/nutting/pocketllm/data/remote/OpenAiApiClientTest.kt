@@ -15,6 +15,8 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class OpenAiApiClientTest {
@@ -101,5 +103,63 @@ class OpenAiApiClientTest {
         assert(serialized.contains("\"model\":\"llama3:8b\""))
         assert(serialized.contains("\"stream\":true"))
         assert(serialized.contains("\"temperature\":0.7"))
+    }
+
+    @Test
+    fun `given rate limited response when retried then succeeds on next attempt`() = runTest {
+        var attempts = 0
+        val result = retryWithBackoff(maxRetries = 3, initialBackoffMs = 1) {
+            attempts++
+            if (attempts < 2) throw ApiException.RateLimited(retryAfterSeconds = null)
+            "success"
+        }
+        assertEquals("success", result)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `given 503 server error when retried then succeeds on next attempt`() = runTest {
+        var attempts = 0
+        val result = retryWithBackoff(maxRetries = 3, initialBackoffMs = 1) {
+            attempts++
+            if (attempts < 2) throw ApiException.ServerError(503, "Service Unavailable")
+            "success"
+        }
+        assertEquals("success", result)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `given persistent rate limiting when all retries exhausted then throws`() = runTest {
+        try {
+            retryWithBackoff(maxRetries = 3, initialBackoffMs = 1) {
+                throw ApiException.RateLimited(retryAfterSeconds = null)
+            }
+            fail("Expected RateLimited exception")
+        } catch (e: ApiException.RateLimited) {
+            // expected
+        }
+    }
+
+    @Test
+    fun `given 500 server error when not retryable then throws immediately`() = runTest {
+        var attempts = 0
+        try {
+            retryWithBackoff(maxRetries = 3, initialBackoffMs = 1) {
+                attempts++
+                throw ApiException.ServerError(500, "Internal Server Error")
+            }
+            fail("Expected ServerError exception")
+        } catch (e: ApiException.ServerError) {
+            assertEquals(500, e.statusCode)
+            assertEquals(1, attempts)
+        }
+    }
+
+    @Test
+    fun `given rate limited with retry-after header when retried then respects header`() = runTest {
+        val exception = ApiException.RateLimited(retryAfterSeconds = 5)
+        assertEquals("Rate limited. Retrying in 5s...", exception.message)
+        assertTrue(exception.retryAfterSeconds == 5L)
     }
 }

@@ -1,14 +1,17 @@
 package dev.nutting.pocketllm.domain.tool
 
-import javax.script.ScriptEngineManager
+import android.util.Log
 
 object CalculatorTool {
+
+    private const val TAG = "CalculatorTool"
 
     fun evaluate(expression: String): String {
         return try {
             val result = evaluateExpression(expression)
             result.toString()
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to evaluate expression: $expression", e)
             "Error: ${e.message}"
         }
     }

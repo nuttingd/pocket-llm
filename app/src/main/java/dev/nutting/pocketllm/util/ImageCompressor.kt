@@ -5,9 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import java.io.ByteArrayOutputStream
 
 object ImageCompressor {
+
+    private const val TAG = "ImageCompressor"
 
     fun compressAndEncode(
         context: Context,
@@ -29,7 +32,8 @@ object ImageCompressor {
 
             val bytes = outputStream.toByteArray()
             "data:image/jpeg;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}"
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to compress image: $uri", e)
             null
         }
     }

@@ -108,7 +108,7 @@ class ChatViewModel(
     private fun loadServers() {
         viewModelScope.launch {
             serverRepository.getAll().collect { servers ->
-                _uiState.update { it.copy(availableServers = servers) }
+                _uiState.update { it.copy(availableServers = servers, serversLoaded = true) }
             }
         }
     }
@@ -669,8 +669,8 @@ class ChatViewModel(
 
                 conversationRepository.rename(conversationId, title)
                 _uiState.update { it.copy(conversationTitle = title) }
-            } catch (_: Exception) {
-                // Title generation is best-effort; ignore failures
+            } catch (e: Exception) {
+                Log.e(TAG, "Title generation failed", e)
             }
         }
     }
