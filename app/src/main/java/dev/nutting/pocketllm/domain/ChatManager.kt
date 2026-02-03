@@ -21,11 +21,10 @@ import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.domain.tool.ToolExecutor
 import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
@@ -200,38 +199,34 @@ class ChatManager(
                 var usage: Usage? = null
                 var finishReason: String? = null
 
-                coroutineScope {
-                    currentJob = launch {
-                        apiClient.streamChatCompletion(
-                            baseUrl = server.baseUrl,
-                            apiKey = apiKey,
-                            timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-                            request = request,
-                        ).collect { chunk ->
-                            val choice = chunk.choices.firstOrNull()
-                            val delta = choice?.delta
-                            choice?.finishReason?.let { finishReason = it }
+                currentJob = currentCoroutineContext()[Job]
+                apiClient.streamChatCompletion(
+                    baseUrl = server.baseUrl,
+                    apiKey = apiKey,
+                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                    request = request,
+                ).collect { chunk ->
+                    val choice = chunk.choices.firstOrNull()
+                    val delta = choice?.delta
+                    choice?.finishReason?.let { finishReason = it }
 
-                            delta?.content?.let {
-                                accumulatedContent.append(it)
-                                emit(StreamState.Delta(content = it))
-                            }
-                            delta?.reasoningContent?.let {
-                                accumulatedThinking.append(it)
-                                emit(StreamState.Delta(content = "", thinkingContent = it))
-                            }
-                            delta?.toolCalls?.forEach { tc ->
-                                val acc = accumulatedToolCalls.getOrPut(tc.index) {
-                                    AccumulatedToolCall()
-                                }
-                                tc.id?.let { acc.id = it }
-                                tc.function?.name?.let { acc.name = (acc.name ?: "") + it }
-                                tc.function?.arguments?.let { acc.arguments.append(it) }
-                            }
-                            chunk.usage?.let { usage = it }
-                        }
+                    delta?.content?.let {
+                        accumulatedContent.append(it)
+                        emit(StreamState.Delta(content = it))
                     }
-                    currentJob?.join()
+                    delta?.reasoningContent?.let {
+                        accumulatedThinking.append(it)
+                        emit(StreamState.Delta(content = "", thinkingContent = it))
+                    }
+                    delta?.toolCalls?.forEach { tc ->
+                        val acc = accumulatedToolCalls.getOrPut(tc.index) {
+                            AccumulatedToolCall()
+                        }
+                        tc.id?.let { acc.id = it }
+                        tc.function?.name?.let { acc.name = (acc.name ?: "") + it }
+                        tc.function?.arguments?.let { acc.arguments.append(it) }
+                    }
+                    chunk.usage?.let { usage = it }
                 }
 
                 // Detect thinking in <think> tags

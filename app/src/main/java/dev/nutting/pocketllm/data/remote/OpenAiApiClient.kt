@@ -11,16 +11,17 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.sse.SSE
-import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.readLine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -60,7 +61,6 @@ class OpenAiApiClient {
         install(ContentNegotiation) {
             json(this@OpenAiApiClient.json)
         }
-        install(SSE)
         install(HttpTimeout) {
             requestTimeoutMillis = timeoutSeconds * 1000
             connectTimeoutMillis = 10_000
@@ -192,21 +192,37 @@ class OpenAiApiClient {
     ): Flow<ChatCompletionChunk> = flow {
         val client = createClient(timeoutSeconds)
         try {
-            client.sse(
-                urlString = "${baseUrl.trimEnd('/')}/v1/chat/completions",
-                request = {
-                    method = io.ktor.http.HttpMethod.Post
-                    contentType(ContentType.Application.Json)
-                    apiKey?.let { headers { append("Authorization", "Bearer $it") } }
-                    setBody(json.encodeToString(ChatCompletionRequest.serializer(), request.copy(stream = true)))
-                },
-            ) {
-                incoming.collect { event ->
-                    val data = event.data ?: return@collect
-                    if (data == "[DONE]") return@collect
-                    val chunk = json.decodeFromString<ChatCompletionChunk>(data)
-                    emit(chunk)
+            val response: HttpResponse = client.post("${baseUrl.trimEnd('/')}/v1/chat/completions") {
+                contentType(ContentType.Application.Json)
+                apiKey?.let { headers { append("Authorization", "Bearer $it") } }
+                setBody(json.encodeToString(ChatCompletionRequest.serializer(), request.copy(stream = true)))
+            }
+            when (response.status.value) {
+                in 200..299 -> { /* proceed to parse SSE stream */ }
+                401 -> throw ApiException.Unauthorized()
+                429 -> {
+                    val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
+                    throw ApiException.RateLimited(retryAfter)
                 }
+                400 -> {
+                    val body = response.bodyAsText()
+                    if (body.contains("context length", ignoreCase = true) || body.contains("maximum context", ignoreCase = true)) {
+                        throw ApiException.ContextLengthExceeded()
+                    }
+                    throw ApiException.ServerError(400, body.take(200))
+                }
+                in 500..599 -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+                else -> throw ApiException.ServerError(response.status.value, response.bodyAsText().take(200))
+            }
+            val channel = response.bodyAsChannel()
+            while (!channel.isClosedForRead) {
+                val line = channel.readLine() ?: break
+                if (line.isBlank()) continue
+                if (!line.startsWith("data:")) continue
+                val data = line.removePrefix("data:").trim()
+                if (data == "[DONE]") break
+                val chunk = json.decodeFromString<ChatCompletionChunk>(data)
+                emit(chunk)
             }
         } catch (e: ApiException) {
             throw e
