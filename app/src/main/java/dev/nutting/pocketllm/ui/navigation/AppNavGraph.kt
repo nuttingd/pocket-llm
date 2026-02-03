@@ -1,5 +1,9 @@
 package dev.nutting.pocketllm.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -33,10 +37,24 @@ fun AppNavGraph(
         )
     }
 
+    val transitionDuration = 300
+
     NavHost(
         navController = navController,
         startDestination = ConversationList,
         modifier = modifier,
+        enterTransition = {
+            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(transitionDuration)) + fadeIn(tween(transitionDuration))
+        },
+        exitTransition = {
+            slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(transitionDuration)) + fadeOut(tween(transitionDuration))
+        },
+        popEnterTransition = {
+            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(transitionDuration)) + fadeIn(tween(transitionDuration))
+        },
+        popExitTransition = {
+            slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(transitionDuration)) + fadeOut(tween(transitionDuration))
+        },
     ) {
         composable<ConversationList> {
             val chatViewModel = remember {
