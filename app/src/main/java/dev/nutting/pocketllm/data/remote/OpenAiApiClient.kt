@@ -65,8 +65,10 @@ class OpenAiApiClient {
             json(this@OpenAiApiClient.json)
         }
         install(HttpTimeout) {
-            requestTimeoutMillis = timeoutSeconds * 1000
-            connectTimeoutMillis = 10_000
+            val millis = timeoutSeconds * 1000
+            requestTimeoutMillis = millis
+            connectTimeoutMillis = millis
+            socketTimeoutMillis = millis
         }
     }
 
