@@ -52,6 +52,7 @@ class ChatViewModel(
         loadDefaults()
         loadTools()
         loadPresets()
+        observeFontSize()
         chatManager.toolApprovalCallback = { toolCalls ->
             val deferred = CompletableDeferred<Boolean>()
             toolApprovalDeferred = deferred
@@ -71,6 +72,14 @@ class ChatViewModel(
             _uiState.update { it.copy(conversationParams = ConversationParameters()) }
         }
         loadServerAndModels()
+    }
+
+    private fun observeFontSize() {
+        viewModelScope.launch {
+            settingsRepository.getMessageFontSizeSp().collect { sp ->
+                _uiState.update { it.copy(messageFontSizeSp = sp) }
+            }
+        }
     }
 
     private fun loadServers() {

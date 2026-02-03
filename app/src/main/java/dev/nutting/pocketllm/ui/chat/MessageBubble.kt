@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.rememberAsyncImagePainter
+import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -51,6 +52,7 @@ import dev.nutting.pocketllm.data.local.entity.MessageEntity
 fun MessageBubble(
     message: MessageEntity,
     modifier: Modifier = Modifier,
+    fontSizeSp: Int = 16,
     onCopy: ((String) -> Unit)? = null,
     onRegenerate: ((MessageEntity) -> Unit)? = null,
     onEdit: ((MessageEntity) -> Unit)? = null,
@@ -116,7 +118,7 @@ fun MessageBubble(
                     if (message.content.isNotBlank()) {
                         Text(
                             text = message.content,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSizeSp.sp),
                         )
                     }
                     message.imageUris?.split("|")?.forEach { dataUrl ->
@@ -135,7 +137,10 @@ fun MessageBubble(
                     Markdown(
                         content = message.content,
                         colors = markdownColor(),
-                        typography = markdownTypography(),
+                        typography = markdownTypography(
+                            text = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSizeSp.sp),
+                            paragraph = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSizeSp.sp),
+                        ),
                     )
                 }
                 if (!isUser && message.totalTokens != null) {

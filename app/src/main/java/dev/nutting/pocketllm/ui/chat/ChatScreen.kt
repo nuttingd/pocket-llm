@@ -253,6 +253,7 @@ private fun ChatContent(
     modifier: Modifier = Modifier,
     onCopy: (String) -> Unit = {},
     onRegenerate: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
+    onEdit: ((dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit)? = null,
     onDelete: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
     onApproveToolCalls: (() -> Unit)? = null,
     onDeclineToolCalls: (() -> Unit)? = null,
@@ -276,8 +277,10 @@ private fun ChatContent(
             items(state.messages, key = { it.id }) { message ->
                 MessageBubble(
                     message = message,
+                    fontSizeSp = state.messageFontSizeSp,
                     onCopy = onCopy,
                     onRegenerate = onRegenerate,
+                    onEdit = onEdit,
                     onDelete = onDelete,
                 )
             }

@@ -29,4 +29,5 @@ data class ChatUiState(
     val toolCallResults: Map<String, String> = emptyMap(),
     val availableTools: List<ToolDefinitionEntity> = emptyList(),
     val presets: List<ParameterPresetEntity> = emptyList(),
+    val messageFontSizeSp: Int = 16,
 )
