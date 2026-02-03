@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -150,7 +151,9 @@ private fun ImageThumbnail(
     uri: Uri,
     onRemove: () -> Unit,
 ) {
-    androidx.compose.foundation.layout.Box {
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier.padding(4.dp),
+    ) {
         Image(
             painter = rememberAsyncImagePainter(uri),
             contentDescription = "Attached image",
@@ -159,14 +162,19 @@ private fun ImageThumbnail(
                 .clip(RoundedCornerShape(8.dp)),
             contentScale = ContentScale.Crop,
         )
-        Icon(
-            Icons.Default.Close,
-            contentDescription = "Remove image",
+        IconButton(
+            onClick = onRemove,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .size(18.dp)
-                .clickable(onClick = onRemove),
-            tint = MaterialTheme.colorScheme.onSurface,
-        )
+                .offset(x = 8.dp, y = (-8).dp)
+                .size(24.dp),
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remove image",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }

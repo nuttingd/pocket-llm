@@ -20,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
@@ -42,7 +44,10 @@ fun ThinkingSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { expanded = !expanded }
-                    .semantics { contentDescription = if (expanded) "Collapse thinking" else "Expand thinking" },
+                    .semantics {
+                        contentDescription = if (expanded) "Collapse thinking" else "Expand thinking"
+                        role = Role.Button
+                    },
             ) {
                 Text(
                     "Thinking",
