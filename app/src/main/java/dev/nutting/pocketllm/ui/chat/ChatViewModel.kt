@@ -295,10 +295,19 @@ class ChatViewModel(
     }
 
     fun sendMessageWithImages(content: String, imageUris: List<Uri>, context: Context) {
+        val modelId = _uiState.value.selectedModelId
+        if (modelId != null && !isLikelyVisionModel(modelId)) {
+            _uiState.update { it.copy(error = "Warning: $modelId may not support images") }
+        }
         val imageDataUrls = imageUris.mapNotNull { uri ->
             ImageCompressor.compressAndEncode(context, uri)
         }
         sendMessageInternal(content, imageDataUrls)
+    }
+
+    private fun isLikelyVisionModel(modelId: String): Boolean {
+        val lower = modelId.lowercase()
+        return VISION_MODEL_KEYWORDS.any { lower.contains(it) }
     }
 
     private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList()) {
@@ -606,6 +615,13 @@ class ChatViewModel(
                 // Title generation is best-effort; ignore failures
             }
         }
+    }
+
+    companion object {
+        private val VISION_MODEL_KEYWORDS = listOf(
+            "vision", "llava", "bakllava", "cogvlm", "fuyu",
+            "obsidian", "moondream", "minicpm-v", "internvl",
+        )
     }
 }
 
