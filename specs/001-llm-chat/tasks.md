@@ -177,10 +177,10 @@
 
 ### Implementation
 
-- [ ] T056 [P] [US12] Create `TokenCounter.kt` in `app/src/main/java/dev/nutting/pocketllm/util/` — estimate token count from message list (simple heuristic: ~4 chars per token). Method: `estimateTokens(messages): Int`. Used for pre-send context tracking when server doesn't report usage.
-- [ ] T057 [US12] Update `MessageBubble.kt` to display token counts (prompt, completion, total) from `Message.promptTokens`/`completionTokens`/`totalTokens` — small expandable footer below assistant messages
-- [ ] T058 [US12] Update `ChatScreen.kt` to add context usage indicator — horizontal progress bar in TopAppBar showing `tokensUsed / contextWindowSize`, color transitions: green (<50%), amber (50-75%), red (>75% compaction threshold). Reads `compaction_threshold_pct` from settings
-- [ ] T059 [US12] Update `ChatManager.kt` to extract `usage` from streaming response final chunk and save to `Message` entity `promptTokens`/`completionTokens`/`totalTokens`
+- [X] T056 [P] [US12] Create `TokenCounter.kt` in `app/src/main/java/dev/nutting/pocketllm/util/` — estimate token count from message list (simple heuristic: ~4 chars per token). Method: `estimateTokens(messages): Int`. Used for pre-send context tracking when server doesn't report usage.
+- [X] T057 [US12] Update `MessageBubble.kt` to display token counts (prompt, completion, total) from `Message.promptTokens`/`completionTokens`/`totalTokens` — small expandable footer below assistant messages
+- [X] T058 [US12] Update `ChatScreen.kt` to add context usage indicator — horizontal progress bar in TopAppBar showing `tokensUsed / contextWindowSize`, color transitions: green (<50%), amber (50-75%), red (>75% compaction threshold). Reads `compaction_threshold_pct` from settings
+- [X] T059 [US12] Update `ChatManager.kt` to extract `usage` from streaming response final chunk and save to `Message` entity `promptTokens`/`completionTokens`/`totalTokens`
 
 **Checkpoint**: Token usage visible on every response. Context usage indicator warns as threshold approaches.
 
