@@ -524,6 +524,19 @@ class ChatViewModel(
         return conversationRepository.exportAsMarkdown(conversationId, messageRepository)
     }
 
+    fun exportConversationToFile(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            val markdown = exportConversation() ?: return@launch
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    outputStream.write(markdown.toByteArray())
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Failed to save file: ${e.message}") }
+            }
+        }
+    }
+
     fun compactConversation() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return

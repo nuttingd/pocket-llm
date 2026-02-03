@@ -28,6 +28,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
@@ -78,6 +80,12 @@ fun ChatScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    val saveFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri ->
+        uri?.let { viewModel.exportConversationToFile(it, context) }
+    }
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
@@ -174,6 +182,10 @@ fun ChatScreen(
                         ChatOverflowMenu(
                             onNavigateToSettings = onNavigateToSettings,
                             onCompact = viewModel::compactConversation,
+                            onSaveToFile = {
+                                val title = state.conversationTitle.replace(Regex("[^a-zA-Z0-9 ]"), "").take(40)
+                                saveFileLauncher.launch("$title.md")
+                            },
                             onShare = {
                                 scope.launch {
                                     val markdown = viewModel.exportConversation()
@@ -326,6 +338,7 @@ private fun ChatContent(
 private fun ChatOverflowMenu(
     onNavigateToSettings: () -> Unit,
     onCompact: () -> Unit,
+    onSaveToFile: () -> Unit = {},
     onShare: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -343,6 +356,13 @@ private fun ChatOverflowMenu(
                 onClick = {
                     expanded = false
                     onShare()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Save to file") },
+                onClick = {
+                    expanded = false
+                    onSaveToFile()
                 },
             )
             DropdownMenuItem(
