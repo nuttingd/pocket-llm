@@ -320,13 +320,13 @@ A user wants quick shortcuts for common parameter combinations rather than manua
 #### Conversation Management
 - **FR-020**: System MUST support creating, renaming, and deleting conversations.
 - **FR-021**: System MUST persist all conversations and messages locally across app restarts.
-- **FR-022**: System MUST auto-generate conversation titles by initially truncating the first user message, then replacing with an LLM-generated title once the first assistant response completes.
+- **FR-022**: System MUST auto-generate conversation titles by initially truncating the first user message to 50 characters, then replacing with an LLM-generated title (max 6 words) once the first assistant response completes.
 - **FR-023**: System MUST display conversations in a navigable list sorted by most recent activity.
 - **FR-024**: System MUST support searching across conversation titles and message content.
 
 #### Context & Compaction
-- **FR-030**: System MUST track token usage relative to the selected model's context window size.
-- **FR-031**: System MUST trigger automatic context compaction when token usage reaches 75% of the model's context window size.
+- **FR-030**: System MUST track token usage relative to the selected model's context window size. Token counts are estimated using a character-based heuristic (chars / 4) when a tokenizer is unavailable.
+- **FR-031**: System MUST trigger automatic context compaction when token usage reaches the configurable threshold (default 75%) of the model's context window size. Compaction summarizes all messages except the most recent exchange into a system-level summary, preserving conversation continuity.
 - **FR-032**: System MUST support manual compaction triggered by the user.
 - **FR-033**: System MUST visually indicate where compaction has occurred in a conversation.
 - **FR-034**: System MUST use the LLM itself to generate compaction summaries.
@@ -339,7 +339,7 @@ A user wants quick shortcuts for common parameter combinations rather than manua
 - **FR-044**: System MUST send tool execution results back to the model to continue the response cycle.
 - **FR-045**: System MUST handle tool call errors gracefully, allowing retry or skip.
 - **FR-046**: System MUST allow users to configure which built-in tools are available per conversation.
-- **FR-047**: System MUST handle multiple parallel tool calls within a single assistant response, executing each (with approval) and returning all results before the model continues.
+- **FR-047**: System MUST handle multiple parallel tool calls within a single assistant response, presenting all calls for batch approval (single approve/decline for the group), executing each with a 30-second timeout, and returning all results before the model continues.
 
 #### Message Actions
 - **FR-050**: System MUST allow users to regenerate any assistant response.
@@ -355,7 +355,7 @@ A user wants quick shortcuts for common parameter combinations rather than manua
 
 #### Image / Multimodal
 - **FR-080**: System MUST allow users to attach images to messages from the device gallery, camera, or clipboard.
-- **FR-081**: System MUST send attached images in the OpenAI vision API format (base64-encoded in the message content array), auto-resized to a configurable max dimension (default 1024px on the long side) and compressed to JPEG quality 85% before encoding.
+- **FR-081**: System MUST send attached images in the OpenAI vision API format (base64-encoded in the message content array), auto-resized to a configurable max dimension (default 1024px on the long side, images smaller than the threshold are preserved at original size) and compressed to JPEG quality 85% before encoding.
 - **FR-082**: System MUST display attached and received images inline within the conversation.
 - **FR-083**: System MUST warn the user if the selected model may not support image input.
 
