@@ -55,6 +55,9 @@ interface ConversationDao {
         updatedAt: Long,
     )
 
+    @Query("UPDATE conversations SET lastServerProfileId = :serverProfileId, lastModelId = :modelId, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateServerAndModel(id: String, serverProfileId: String?, modelId: String?, updatedAt: Long)
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteById(id: String)
 }

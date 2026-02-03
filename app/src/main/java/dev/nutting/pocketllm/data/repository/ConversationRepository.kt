@@ -46,6 +46,9 @@ class ConversationRepository(
         }
     }
 
+    suspend fun updateServerAndModel(id: String, serverProfileId: String?, modelId: String?) =
+        dao.updateServerAndModel(id, serverProfileId, modelId, System.currentTimeMillis())
+
     suspend fun updateParameters(
         id: String,
         serverProfileId: String?,

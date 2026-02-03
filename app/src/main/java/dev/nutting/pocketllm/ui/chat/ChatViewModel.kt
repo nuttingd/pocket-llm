@@ -83,11 +83,18 @@ class ChatViewModel(
             isFirstMessage = false
             observeConversation(conversationId)
             loadConversationParams(conversationId)
+            viewModelScope.launch {
+                val conversation = conversationRepository.getById(conversationId).first()
+                loadServerAndModels(
+                    preferredServerId = conversation?.lastServerProfileId,
+                    preferredModelId = conversation?.lastModelId,
+                )
+            }
         } else {
             isFirstMessage = true
             _uiState.update { it.copy(conversationParams = ConversationParameters()) }
+            loadServerAndModels()
         }
-        loadServerAndModels()
     }
 
     private fun observeFontSize() {
@@ -139,19 +146,28 @@ class ChatViewModel(
         }
     }
 
-    private fun loadServerAndModels() {
+    private fun loadServerAndModels(
+        preferredServerId: String? = null,
+        preferredModelId: String? = null,
+    ) {
         viewModelScope.launch {
-            val serverId = settingsRepository.getLastActiveServerId().first()
+            val serverId = preferredServerId?.takeIf { it.isNotBlank() }
+                ?: settingsRepository.getLastActiveServerId().first()
             if (serverId.isBlank()) return@launch
             val server = serverRepository.getById(serverId).first() ?: return@launch
             _uiState.update { it.copy(selectedServer = server, isLoadingModels = true) }
 
             try {
                 val models = serverRepository.fetchModels(serverId)
+                val selectedModel = if (preferredModelId != null && models.any { it.id == preferredModelId }) {
+                    preferredModelId
+                } else {
+                    models.firstOrNull()?.id
+                }
                 _uiState.update {
                     it.copy(
                         availableModels = models,
-                        selectedModelId = it.selectedModelId ?: models.firstOrNull()?.id,
+                        selectedModelId = selectedModel,
                         isLoadingModels = false,
                     )
                 }
@@ -446,6 +462,7 @@ class ChatViewModel(
                 _uiState.update {
                     it.copy(availableModels = models, selectedModelId = models.firstOrNull()?.id, isLoadingModels = false)
                 }
+                persistServerAndModel()
             } catch (e: ApiException) {
                 Log.e(TAG, "Failed to switch server (API)", e)
                 _uiState.update { it.copy(error = e.message, isLoadingModels = false) }
@@ -458,6 +475,17 @@ class ChatViewModel(
 
     fun switchModel(modelId: String) {
         _uiState.update { it.copy(selectedModelId = modelId) }
+        persistServerAndModel()
+    }
+
+    private fun persistServerAndModel() {
+        val state = _uiState.value
+        val conversationId = state.conversationId ?: return
+        val serverId = state.selectedServer?.id
+        val modelId = state.selectedModelId
+        viewModelScope.launch {
+            conversationRepository.updateServerAndModel(conversationId, serverId, modelId)
+        }
     }
 
     fun regenerateMessage(message: MessageEntity) {
