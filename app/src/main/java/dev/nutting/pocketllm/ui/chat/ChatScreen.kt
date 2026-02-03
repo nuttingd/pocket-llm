@@ -23,6 +23,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +69,7 @@ fun ChatScreen(
     val state by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val clipboardManager = LocalClipboardManager.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -179,6 +182,12 @@ fun ChatScreen(
                     state = state,
                     listState = listState,
                     modifier = Modifier.weight(1f),
+                    onCopy = { text ->
+                        clipboardManager.setText(AnnotatedString(text))
+                        scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
+                    },
+                    onRegenerate = viewModel::regenerateMessage,
+                    onDelete = viewModel::deleteMessage,
                 )
             }
         }
@@ -216,6 +225,9 @@ private fun ChatContent(
     state: ChatUiState,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
+    onCopy: (String) -> Unit = {},
+    onRegenerate: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
+    onDelete: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
 ) {
     if (state.messages.isEmpty() && !state.isStreaming) {
         Box(
@@ -234,7 +246,12 @@ private fun ChatContent(
             modifier = modifier.fillMaxSize(),
         ) {
             items(state.messages, key = { it.id }) { message ->
-                MessageBubble(message = message)
+                MessageBubble(
+                    message = message,
+                    onCopy = onCopy,
+                    onRegenerate = onRegenerate,
+                    onDelete = onDelete,
+                )
             }
             if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
                 item(key = "streaming") {

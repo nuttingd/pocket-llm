@@ -3,6 +3,7 @@ package dev.nutting.pocketllm.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
+import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
@@ -285,6 +286,74 @@ class ChatViewModel(
 
     fun switchModel(modelId: String) {
         _uiState.update { it.copy(selectedModelId = modelId) }
+    }
+
+    fun regenerateMessage(message: MessageEntity) {
+        val parentId = message.parentMessageId ?: return
+        val state = _uiState.value
+        val server = state.selectedServer ?: return
+        val modelId = state.selectedModelId ?: return
+        val resolved = resolvedParams()
+
+        streamJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(isStreaming = true, currentStreamingContent = "", currentStreamingThinking = "", error = null)
+            }
+
+            // Set active leaf to the parent so ChatManager builds from there
+            conversationRepository.updateActiveLeaf(message.conversationId, parentId)
+
+            chatManager.sendMessage(
+                conversationId = message.conversationId,
+                content = "", // Empty - we're regenerating from the parent's user message
+                serverId = server.id,
+                modelId = modelId,
+                systemPrompt = resolved.systemPrompt,
+                temperature = resolved.temperature,
+                maxTokens = resolved.maxTokens,
+                topP = resolved.topP,
+                frequencyPenalty = resolved.frequencyPenalty,
+                presencePenalty = resolved.presencePenalty,
+            ).collect { streamState ->
+                when (streamState) {
+                    is StreamState.Delta -> {
+                        _uiState.update {
+                            it.copy(
+                                currentStreamingContent = it.currentStreamingContent + streamState.content,
+                                currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
+                            )
+                        }
+                    }
+                    is StreamState.Complete -> {
+                        _uiState.update {
+                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "")
+                        }
+                        observeConversation(message.conversationId)
+                    }
+                    is StreamState.Error -> {
+                        _uiState.update {
+                            it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun deleteMessage(message: MessageEntity) {
+        viewModelScope.launch {
+            val conversationId = message.conversationId
+            val parentId = message.parentMessageId
+
+            messageRepository.deleteMessage(message.id)
+
+            // If this was the active branch, navigate to parent or sibling
+            val conversation = conversationRepository.getById(conversationId).first()
+            if (conversation?.activeLeafMessageId == message.id || conversation?.activeLeafMessageId == null) {
+                conversationRepository.updateActiveLeaf(conversationId, parentId)
+                observeConversation(conversationId)
+            }
+        }
     }
 
     fun compactConversation() {
