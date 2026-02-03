@@ -10,11 +10,14 @@ import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
 import dev.nutting.pocketllm.data.local.dao.ConversationDao
 import dev.nutting.pocketllm.data.local.dao.MessageDao
 import dev.nutting.pocketllm.data.local.dao.ServerProfileDao
+import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
+import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.MessageFts
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
+import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 
 @Database(
     entities = [
@@ -23,8 +26,10 @@ import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
         MessageEntity::class,
         CompactionSummaryEntity::class,
         MessageFts::class,
+        ToolDefinitionEntity::class,
+        ConversationToolEnabledEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class PocketLlmDatabase : RoomDatabase() {
@@ -32,6 +37,7 @@ abstract class PocketLlmDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun compactionSummaryDao(): CompactionSummaryDao
+    abstract fun toolDefinitionDao(): ToolDefinitionDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -72,13 +78,61 @@ abstract class PocketLlmDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `tool_definitions` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `name` TEXT NOT NULL,
+                        `description` TEXT NOT NULL,
+                        `parametersSchemaJson` TEXT NOT NULL,
+                        `isBuiltIn` INTEGER NOT NULL DEFAULT 0,
+                        `isEnabledByDefault` INTEGER NOT NULL DEFAULT 1
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `conversation_tool_enabled` (
+                        `conversationId` TEXT NOT NULL,
+                        `toolDefinitionId` TEXT NOT NULL,
+                        `isEnabled` INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(`conversationId`, `toolDefinitionId`),
+                        FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON DELETE CASCADE,
+                        FOREIGN KEY(`toolDefinitionId`) REFERENCES `tool_definitions`(`id`) ON DELETE CASCADE
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversation_tool_enabled_conversationId` ON `conversation_tool_enabled`(`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversation_tool_enabled_toolDefinitionId` ON `conversation_tool_enabled`(`toolDefinitionId`)")
+                seedBuiltInTools(db)
+            }
+        }
+
+        private fun seedBuiltInTools(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """INSERT OR IGNORE INTO tool_definitions (id, name, description, parametersSchemaJson, isBuiltIn, isEnabledByDefault)
+                VALUES ('builtin-calculator', 'calculator', 'Evaluate a mathematical expression',
+                '{"type":"object","properties":{"expression":{"type":"string","description":"The math expression to evaluate"}},"required":["expression"]}',
+                1, 1)"""
+            )
+            db.execSQL(
+                """INSERT OR IGNORE INTO tool_definitions (id, name, description, parametersSchemaJson, isBuiltIn, isEnabledByDefault)
+                VALUES ('builtin-web-fetch', 'web_fetch', 'Fetch the content of a URL',
+                '{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"}},"required":["url"]}',
+                1, 0)"""
+            )
+        }
+
         fun create(context: Context): PocketLlmDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 PocketLlmDatabase::class.java,
                 "pocket_llm.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addCallback(object : Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        seedBuiltInTools(db)
+                    }
+                })
                 .build()
     }
 }
