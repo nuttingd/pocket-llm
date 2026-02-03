@@ -277,6 +277,7 @@ private val aboutLibraries = listOf(
 @Composable
 private fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val githubUrl = stringResource(R.string.app_github_url)
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -303,7 +304,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                 TextButton(
                     onClick = {
                         context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(context.getString(R.string.app_github_url)))
+                            Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl))
                         )
                     },
                     contentPadding = PaddingValues(0.dp),
