@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 
 @Composable
@@ -69,10 +72,18 @@ fun MessageBubble(
                 },
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+                if (isUser) {
+                    Text(
+                        text = message.content,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                } else {
+                    Markdown(
+                        content = message.content,
+                        colors = markdownColor(),
+                        typography = markdownTypography(),
+                    )
+                }
                 if (!isUser && message.totalTokens != null) {
                     TokenUsageFooter(message = message)
                 }
