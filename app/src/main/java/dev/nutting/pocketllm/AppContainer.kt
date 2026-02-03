@@ -36,11 +36,14 @@ class AppContainer(context: Context) {
         dataStore = settingsDataStore,
     )
 
+    val toolDefinitionDao = database.toolDefinitionDao()
+
     val chatManager = ChatManager(
         serverRepository = serverRepository,
         conversationRepository = conversationRepository,
         messageRepository = messageRepository,
         apiClient = apiClient,
         compactionSummaryDao = database.compactionSummaryDao(),
+        toolDefinitionDao = toolDefinitionDao,
     )
 }

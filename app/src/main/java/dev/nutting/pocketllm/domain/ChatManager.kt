@@ -3,15 +3,21 @@ package dev.nutting.pocketllm.domain
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
+import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 import dev.nutting.pocketllm.data.remote.OpenAiApiClient
 import dev.nutting.pocketllm.data.remote.model.ChatCompletionRequest
 import dev.nutting.pocketllm.data.remote.model.ChatContent
 import dev.nutting.pocketllm.data.remote.model.ChatMessage
+import dev.nutting.pocketllm.data.remote.model.FunctionDefinition
+import dev.nutting.pocketllm.data.remote.model.ToolCall
+import dev.nutting.pocketllm.data.remote.model.ToolDefinitionParam
 import dev.nutting.pocketllm.data.remote.model.Usage
 import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
+import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
+import dev.nutting.pocketllm.domain.tool.ToolExecutor
 import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -19,12 +25,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
 sealed interface StreamState {
     data class Delta(val content: String, val thinkingContent: String? = null) : StreamState
     data class Complete(val message: MessageEntity) : StreamState
     data class Error(val error: String) : StreamState
+    data class ToolCallsPending(val toolCalls: List<ToolCall>) : StreamState
+    data class ToolCallResult(val toolName: String, val result: String) : StreamState
 }
 
 class ChatManager(
@@ -33,8 +43,12 @@ class ChatManager(
     private val messageRepository: MessageRepository,
     private val apiClient: OpenAiApiClient,
     private val compactionSummaryDao: CompactionSummaryDao? = null,
+    private val toolDefinitionDao: ToolDefinitionDao? = null,
 ) {
     private var currentJob: Job? = null
+    private val json = Json { ignoreUnknownKeys = true }
+
+    var toolApprovalCallback: (suspend (List<ToolCall>) -> Boolean)? = null
 
     fun sendMessage(
         conversationId: String,
@@ -60,23 +74,34 @@ class ChatManager(
             val conversation = conversationRepository.getById(conversationId).first()
                 ?: throw IllegalStateException("Conversation not found: $conversationId")
 
-            // Save user message
+            // Save user message if content is non-empty (empty = regenerate)
             val parentId = conversation.activeLeafMessageId
             val parentMessage = parentId?.let { messageRepository.getById(it) }
-            val userMessage = MessageEntity(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                parentMessageId = parentId,
-                role = "user",
-                content = content,
-                depth = (parentMessage?.depth ?: -1) + 1,
-                createdAt = System.currentTimeMillis(),
-            )
-            messageRepository.insertMessage(userMessage)
-            conversationRepository.updateActiveLeaf(conversationId, userMessage.id)
+
+            val anchorMessage = if (content.isNotEmpty()) {
+                val userMessage = MessageEntity(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = conversationId,
+                    parentMessageId = parentId,
+                    role = "user",
+                    content = content,
+                    depth = (parentMessage?.depth ?: -1) + 1,
+                    createdAt = System.currentTimeMillis(),
+                )
+                messageRepository.insertMessage(userMessage)
+                conversationRepository.updateActiveLeaf(conversationId, userMessage.id)
+                userMessage
+            } else {
+                parentMessage ?: throw IllegalStateException("No parent message for regeneration")
+            }
+
+            // Get enabled tools
+            val toolDefs = toolDefinitionDao?.getEnabledForConversation(conversationId)?.first()
+                ?: emptyList()
+            val toolParams = toolDefs.map { it.toToolParam() }.takeIf { it.isNotEmpty() }
 
             // Build message list from active branch
-            val branchMessages = messageRepository.getActiveBranch(userMessage.id).first()
+            val branchMessages = messageRepository.getActiveBranch(anchorMessage.id).first()
 
             // Check if compaction is needed
             val contextWindow = (maxTokens ?: 2048) * 4
@@ -84,8 +109,7 @@ class ChatManager(
             val compactionThreshold = (contextWindow * 0.75).toInt()
 
             val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4) {
-                // Attempt auto-compaction: summarize older messages
-                val messagesToCompact = branchMessages.dropLast(4) // Keep recent 4
+                val messagesToCompact = branchMessages.dropLast(4)
                 val recentMessages = branchMessages.takeLast(4)
 
                 val summary = tryCompactMessages(
@@ -98,7 +122,6 @@ class ChatManager(
                 )
 
                 if (summary != null) {
-                    // Use summary + recent messages
                     listOf(
                         MessageEntity(
                             id = "compaction-summary",
@@ -110,96 +133,228 @@ class ChatManager(
                         )
                     ) + recentMessages
                 } else {
-                    branchMessages // Compaction failed, use full branch
+                    branchMessages
                 }
             } else {
                 branchMessages
             }
 
-            val chatMessages = buildList {
+            var chatMessages = buildList {
                 systemPrompt?.takeIf { it.isNotBlank() }?.let {
                     add(ChatMessage(role = "system", content = ChatContent.Text(it)))
                 }
                 effectiveMessages.forEach { msg ->
-                    add(ChatMessage(role = msg.role, content = ChatContent.Text(msg.content)))
+                    add(
+                        ChatMessage(
+                            role = msg.role,
+                            content = ChatContent.Text(msg.content),
+                            toolCallId = msg.toolCallId,
+                        )
+                    )
                 }
             }
 
-            // Build request
-            val request = ChatCompletionRequest(
-                model = modelId,
-                messages = chatMessages,
-                temperature = temperature,
-                maxTokens = maxTokens,
-                topP = topP,
-                frequencyPenalty = frequencyPenalty,
-                presencePenalty = presencePenalty,
-                stream = true,
-            )
+            // Streaming + tool call loop
+            var lastParentMessage = anchorMessage
+            var continueLoop = true
 
-            // Stream response
-            var accumulatedContent = StringBuilder()
-            var accumulatedThinking = StringBuilder()
-            var usage: Usage? = null
+            while (continueLoop) {
+                continueLoop = false
 
-            coroutineScope {
-                currentJob = launch {
-                    apiClient.streamChatCompletion(
-                        baseUrl = server.baseUrl,
-                        apiKey = apiKey,
-                        timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-                        request = request,
-                    ).collect { chunk ->
-                        val delta = chunk.choices.firstOrNull()?.delta
-                        delta?.content?.let {
-                            accumulatedContent.append(it)
-                            emit(StreamState.Delta(content = it))
+                val request = ChatCompletionRequest(
+                    model = modelId,
+                    messages = chatMessages,
+                    temperature = temperature,
+                    maxTokens = maxTokens,
+                    topP = topP,
+                    frequencyPenalty = frequencyPenalty,
+                    presencePenalty = presencePenalty,
+                    stream = true,
+                    tools = toolParams,
+                )
+
+                val accumulatedContent = StringBuilder()
+                val accumulatedThinking = StringBuilder()
+                val accumulatedToolCalls = mutableMapOf<Int, AccumulatedToolCall>()
+                var usage: Usage? = null
+                var finishReason: String? = null
+
+                coroutineScope {
+                    currentJob = launch {
+                        apiClient.streamChatCompletion(
+                            baseUrl = server.baseUrl,
+                            apiKey = apiKey,
+                            timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                            request = request,
+                        ).collect { chunk ->
+                            val choice = chunk.choices.firstOrNull()
+                            val delta = choice?.delta
+                            choice?.finishReason?.let { finishReason = it }
+
+                            delta?.content?.let {
+                                accumulatedContent.append(it)
+                                emit(StreamState.Delta(content = it))
+                            }
+                            delta?.reasoningContent?.let {
+                                accumulatedThinking.append(it)
+                                emit(StreamState.Delta(content = "", thinkingContent = it))
+                            }
+                            delta?.toolCalls?.forEach { tc ->
+                                val acc = accumulatedToolCalls.getOrPut(tc.index) {
+                                    AccumulatedToolCall()
+                                }
+                                tc.id?.let { acc.id = it }
+                                tc.function?.name?.let { acc.name = (acc.name ?: "") + it }
+                                tc.function?.arguments?.let { acc.arguments.append(it) }
+                            }
+                            chunk.usage?.let { usage = it }
                         }
-                        delta?.reasoningContent?.let {
-                            accumulatedThinking.append(it)
-                            emit(StreamState.Delta(content = "", thinkingContent = it))
-                        }
-                        chunk.usage?.let { usage = it }
+                    }
+                    currentJob?.join()
+                }
+
+                // Detect thinking in <think> tags
+                var finalContent = accumulatedContent.toString()
+                var thinkingContent = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+
+                if (thinkingContent == null) {
+                    val thinkRegex = Regex("<think>(.*?)</think>", RegexOption.DOT_MATCHES_ALL)
+                    val match = thinkRegex.find(finalContent)
+                    if (match != null) {
+                        thinkingContent = match.groupValues[1].trim()
+                        finalContent = finalContent.replace(match.value, "").trim()
                     }
                 }
-                currentJob?.join()
-            }
 
-            // Detect thinking in <think> tags if no reasoning_content was provided
-            var finalContent = accumulatedContent.toString()
-            var thinkingContent = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                val resolvedToolCalls = accumulatedToolCalls.values.mapNotNull { it.toToolCall() }
 
-            if (thinkingContent == null) {
-                val thinkRegex = Regex("<think>(.*?)</think>", RegexOption.DOT_MATCHES_ALL)
-                val match = thinkRegex.find(finalContent)
-                if (match != null) {
-                    thinkingContent = match.groupValues[1].trim()
-                    finalContent = finalContent.replace(match.value, "").trim()
+                if (finishReason == "tool_calls" && resolvedToolCalls.isNotEmpty()) {
+                    // Save assistant message with tool calls
+                    val toolCallsJson = kotlinx.serialization.json.Json.encodeToString(
+                        kotlinx.serialization.builtins.ListSerializer(ToolCall.serializer()),
+                        resolvedToolCalls,
+                    )
+                    val assistantMsg = MessageEntity(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        parentMessageId = lastParentMessage.id,
+                        role = "assistant",
+                        content = finalContent,
+                        thinkingContent = thinkingContent,
+                        toolCallsJson = toolCallsJson,
+                        serverProfileId = serverId,
+                        modelId = modelId,
+                        promptTokens = usage?.promptTokens,
+                        completionTokens = usage?.completionTokens,
+                        totalTokens = usage?.totalTokens,
+                        depth = lastParentMessage.depth + 1,
+                        createdAt = System.currentTimeMillis(),
+                    )
+                    messageRepository.insertMessage(assistantMsg)
+                    conversationRepository.updateActiveLeaf(conversationId, assistantMsg.id)
+
+                    emit(StreamState.ToolCallsPending(resolvedToolCalls))
+
+                    // Check approval
+                    val approved = toolApprovalCallback?.invoke(resolvedToolCalls) ?: true
+
+                    if (approved) {
+                        // Execute tool calls and send results
+                        var currentParent = assistantMsg
+                        val toolMessages = mutableListOf<ChatMessage>()
+
+                        for (tc in resolvedToolCalls) {
+                            val result = ToolExecutor.execute(tc.function.name, tc.function.arguments)
+                            emit(StreamState.ToolCallResult(tc.function.name, result))
+
+                            val toolMsg = MessageEntity(
+                                id = UUID.randomUUID().toString(),
+                                conversationId = conversationId,
+                                parentMessageId = currentParent.id,
+                                role = "tool",
+                                content = result,
+                                toolCallId = tc.id,
+                                depth = currentParent.depth + 1,
+                                createdAt = System.currentTimeMillis(),
+                            )
+                            messageRepository.insertMessage(toolMsg)
+                            conversationRepository.updateActiveLeaf(conversationId, toolMsg.id)
+                            currentParent = toolMsg
+
+                            toolMessages.add(
+                                ChatMessage(
+                                    role = "tool",
+                                    content = ChatContent.Text(result),
+                                    toolCallId = tc.id,
+                                )
+                            )
+                        }
+
+                        // Rebuild messages for continuation
+                        chatMessages = chatMessages + ChatMessage(
+                            role = "assistant",
+                            content = ChatContent.Text(finalContent),
+                        ) + toolMessages
+
+                        lastParentMessage = currentParent
+                        continueLoop = true
+                    } else {
+                        emit(StreamState.Complete(assistantMsg))
+                    }
+                } else {
+                    // Normal completion - save assistant message
+                    val assistantMessage = MessageEntity(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        parentMessageId = lastParentMessage.id,
+                        role = "assistant",
+                        content = finalContent,
+                        thinkingContent = thinkingContent,
+                        serverProfileId = serverId,
+                        modelId = modelId,
+                        promptTokens = usage?.promptTokens,
+                        completionTokens = usage?.completionTokens,
+                        totalTokens = usage?.totalTokens,
+                        depth = lastParentMessage.depth + 1,
+                        createdAt = System.currentTimeMillis(),
+                    )
+                    messageRepository.insertMessage(assistantMessage)
+                    conversationRepository.updateActiveLeaf(conversationId, assistantMessage.id)
+
+                    emit(StreamState.Complete(assistantMessage))
                 }
             }
-
-            // Save assistant message
-            val assistantMessage = MessageEntity(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                parentMessageId = userMessage.id,
-                role = "assistant",
-                content = finalContent,
-                thinkingContent = thinkingContent,
-                serverProfileId = serverId,
-                modelId = modelId,
-                promptTokens = usage?.promptTokens,
-                completionTokens = usage?.completionTokens,
-                totalTokens = usage?.totalTokens,
-                depth = userMessage.depth + 1,
-                createdAt = System.currentTimeMillis(),
-            )
-            messageRepository.insertMessage(assistantMessage)
-            conversationRepository.updateActiveLeaf(conversationId, assistantMessage.id)
-
-            emit(StreamState.Complete(assistantMessage))
         } catch (e: Exception) {
             emit(StreamState.Error(e.message ?: "Unknown error"))
+        }
+    }
+
+    private fun ToolDefinitionEntity.toToolParam(): ToolDefinitionParam {
+        val schema = json.parseToJsonElement(parametersSchemaJson) as JsonObject
+        return ToolDefinitionParam(
+            function = FunctionDefinition(
+                name = name,
+                description = description,
+                parameters = schema,
+            ),
+        )
+    }
+
+    private class AccumulatedToolCall {
+        var id: String? = null
+        var name: String? = null
+        val arguments = StringBuilder()
+
+        fun toToolCall(): ToolCall? {
+            val id = id ?: return null
+            val name = name ?: return null
+            return ToolCall(
+                id = id,
+                function = dev.nutting.pocketllm.data.remote.model.FunctionCall(
+                    name = name,
+                    arguments = arguments.toString(),
+                ),
+            )
         }
     }
 
