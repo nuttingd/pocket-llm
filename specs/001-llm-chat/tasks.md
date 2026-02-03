@@ -381,13 +381,13 @@
 
 **Purpose**: Quality, performance, and edge case handling across all stories
 
-- [ ] T101 Add error handling for all edge cases from spec: mid-stream disconnect (display partial + retry), empty response ("No response generated" + retry), context exceeded + compaction failure (suggest new conversation), message during streaming (queue or inform), network loss (detect + graceful failure), zero models (clear message), undefined tool (display raw + notify), large paste (token warning), 429 rate limiting (retry-after + button), request timeout (timeout error + retry)
-- [ ] T102 [P] Add loading, empty, and error states to all screens — `ChatScreen` (empty conversation placeholder, loading spinner, error banner with retry), `ConversationListScreen` (empty state illustration, loading), `ServerConfigScreen` (connection testing spinner, error feedback)
-- [ ] T103 [P] Add Material motion and transitions — container transforms between conversation list and chat, shared axis transitions for navigation, purposeful animations per constitution VII
-- [ ] T104 [P] Verify accessibility on all screens — TalkBack navigation audit, logical reading order, all `contentDescription` values meaningful, 48dp touch targets, dynamic font scaling without breakage, high contrast support (FR-090 through FR-093, SC-011)
-- [ ] T105 [P] Add retry with exponential backoff for 429/503 responses in `OpenAiApiClient.kt` — display retry countdown to user (FR-019)
-- [ ] T106 Verify `./gradlew assembleDebug && ./gradlew test && ./gradlew lintDebug` all pass with zero errors
-- [ ] T107 Run quickstart.md validation — verify all listed dependencies compile, package structure matches plan, build commands succeed
+- [X] T101 Add error handling for all edge cases from spec: mid-stream disconnect (display partial + retry), empty response ("No response generated" + retry), context exceeded + compaction failure (suggest new conversation), message during streaming (queue or inform), network loss (detect + graceful failure), zero models (clear message), undefined tool (display raw + notify), large paste (token warning), 429 rate limiting (retry-after + button), request timeout (timeout error + retry)
+- [X] T102 [P] Add loading, empty, and error states to all screens — `ChatScreen` (empty conversation placeholder, loading spinner, error banner with retry), `ConversationListScreen` (empty state illustration, loading), `ServerConfigScreen` (connection testing spinner, error feedback)
+- [X] T103 [P] Add Material motion and transitions — container transforms between conversation list and chat, shared axis transitions for navigation, purposeful animations per constitution VII
+- [X] T104 [P] Verify accessibility on all screens — TalkBack navigation audit, logical reading order, all `contentDescription` values meaningful, 48dp touch targets, dynamic font scaling without breakage, high contrast support (FR-090 through FR-093, SC-011)
+- [X] T105 [P] Add retry with exponential backoff for 429/503 responses in `OpenAiApiClient.kt` — display retry countdown to user (FR-019)
+- [X] T106 Verify `./gradlew assembleDebug && ./gradlew test && ./gradlew lintDebug` all pass with zero errors
+- [X] T107 Run quickstart.md validation — verify all listed dependencies compile, package structure matches plan, build commands succeed
 
 ---
 

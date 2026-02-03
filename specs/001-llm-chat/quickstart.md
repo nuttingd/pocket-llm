@@ -38,7 +38,6 @@ dependencies {
     // Ktor (HTTP + SSE)
     implementation("io.ktor:ktor-client-core:3.4.0")
     implementation("io.ktor:ktor-client-okhttp:3.4.0")
-    implementation("io.ktor:ktor-client-sse:3.4.0")
     implementation("io.ktor:ktor-client-content-negotiation:3.4.0")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.4.0")
 
@@ -54,6 +53,9 @@ dependencies {
     // Markdown rendering
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.2")
     implementation("com.mikepenz:multiplatform-markdown-renderer-code:0.39.2")
+
+    // Image loading
+    implementation("io.coil-kt.coil3:coil-compose:3.1.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
@@ -96,7 +98,9 @@ app/src/main/java/dev/nutting/pocketllm/
 │   │       ├── CompactionSummaryEntity.kt
 │   │       ├── ParameterPresetEntity.kt
 │   │       ├── ToolDefinitionEntity.kt
-│   │       └── ConversationToolEnabledEntity.kt
+│   │       ├── ConversationToolEnabledEntity.kt
+│   │       ├── MessageFts.kt
+│   │       └── SearchResult.kt
 │   ├── remote/
 │   │   ├── OpenAiApiClient.kt         # Ktor HTTP client wrapper
 │   │   └── model/
@@ -131,7 +135,7 @@ app/src/main/java/dev/nutting/pocketllm/
 │   │   ├── MessageInput.kt
 │   │   ├── ThinkingSection.kt
 │   │   ├── ToolCallCard.kt
-│   │   └── BranchNavigator.kt
+│   │   └── ConversationSettingsSheet.kt
 │   ├── conversations/
 │   │   ├── ConversationListScreen.kt
 │   │   ├── ConversationListViewModel.kt
