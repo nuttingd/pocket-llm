@@ -1,0 +1,25 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "bash scripts/set-version.sh ${nextRelease.version} && ./gradlew :app:assembleRelease"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "app/build/outputs/apk/release/app-release.apk",
+            "name": "template-app-${nextRelease.version}.apk",
+            "label": "Template App ${nextRelease.version} (APK)"
+          }
+        ]
+      }
+    ]
+  ]
+}
