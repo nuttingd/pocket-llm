@@ -7,12 +7,13 @@ data class ModelRegistryEntry(
     val parameterCount: String,
     val quantization: String,
     val modelDownloadUrl: String,
-    val projectorDownloadUrl: String,
     val modelFileName: String,
-    val projectorFileName: String,
     val modelSizeBytes: Long,
-    val projectorSizeBytes: Long,
     val minimumRamMb: Int,
+    val projectorDownloadUrl: String? = null,
+    val projectorFileName: String? = null,
+    val projectorSizeBytes: Long = 0L,
 ) {
     val totalSizeBytes: Long get() = modelSizeBytes + projectorSizeBytes
+    val hasProjector: Boolean get() = projectorDownloadUrl != null
 }

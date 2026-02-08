@@ -16,9 +16,7 @@ class LocalModelStoreTest {
         parameterCount = "2.2B",
         quantization = "Q4_K_M",
         modelFileName = "test-model.gguf",
-        projectorFileName = "test-projector.gguf",
         modelSizeBytes = 1_000_000L,
-        projectorSizeBytes = 500_000L,
         downloadStatus = DownloadStatus.NOT_DOWNLOADED,
         minimumRamMb = 4096,
         contextWindowSize = 2048,
@@ -63,7 +61,9 @@ class LocalModelStoreTest {
 
     @Test
     fun `totalSizeBytes computed correctly`() {
-        assertEquals(1_500_000L, testModel.totalSizeBytes)
+        assertEquals(1_000_000L, testModel.totalSizeBytes)
+        val withProjector = testModel.copy(projectorFileName = "proj.gguf", projectorSizeBytes = 500_000L)
+        assertEquals(1_500_000L, withProjector.totalSizeBytes)
     }
 
     @Test
@@ -74,10 +74,10 @@ class LocalModelStoreTest {
             parameterCount = "1B",
             quantization = "Q4_0",
             modelFileName = "m.gguf",
-            projectorFileName = "",
             modelSizeBytes = 100L,
-            projectorSizeBytes = 0L,
         )
+        assertEquals("", minimal.projectorFileName)
+        assertEquals(0L, minimal.projectorSizeBytes)
         assertEquals(DownloadStatus.NOT_DOWNLOADED, minimal.downloadStatus)
         assertEquals(0L, minimal.downloadedBytes)
         assertEquals(null, minimal.sourceUrl)
@@ -89,7 +89,7 @@ class LocalModelStoreTest {
 
     @Test
     fun `deserialization ignores unknown keys`() {
-        val jsonWithExtra = """{"id":"x","name":"X","parameterCount":"1B","quantization":"Q4","modelFileName":"m.gguf","projectorFileName":"","modelSizeBytes":100,"projectorSizeBytes":0,"unknownField":"value"}"""
+        val jsonWithExtra = """{"id":"x","name":"X","parameterCount":"1B","quantization":"Q4","modelFileName":"m.gguf","modelSizeBytes":100,"unknownField":"value"}"""
         val decoded = json.decodeFromString<LocalModel>(jsonWithExtra)
         assertEquals("x", decoded.id)
     }

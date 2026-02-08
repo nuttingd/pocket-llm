@@ -14,9 +14,7 @@ class LocalInferenceProviderTest {
         parameterCount = "2.2B",
         quantization = "Q4_K_M",
         modelFileName = "test-model.gguf",
-        projectorFileName = "test-projector.gguf",
         modelSizeBytes = 1_000_000L,
-        projectorSizeBytes = 500_000L,
         downloadStatus = DownloadStatus.COMPLETE,
         minimumRamMb = 4096,
         contextWindowSize = 2048,
@@ -26,7 +24,7 @@ class LocalInferenceProviderTest {
     fun `model data is correctly passed through`() {
         assertNotNull(testModel.id)
         assertEquals("test-model.gguf", testModel.modelFileName)
-        assertEquals("test-projector.gguf", testModel.projectorFileName)
+        assertEquals("", testModel.projectorFileName)
         assertEquals(2048, testModel.contextWindowSize)
         assertEquals(4096, testModel.minimumRamMb)
         assertEquals(DownloadStatus.COMPLETE, testModel.downloadStatus)
@@ -34,7 +32,9 @@ class LocalInferenceProviderTest {
 
     @Test
     fun `total size bytes is sum of model and projector`() {
-        assertEquals(1_500_000L, testModel.totalSizeBytes)
+        assertEquals(1_000_000L, testModel.totalSizeBytes)
+        val withProjector = testModel.copy(projectorFileName = "proj.gguf", projectorSizeBytes = 500_000L)
+        assertEquals(1_500_000L, withProjector.totalSizeBytes)
     }
 
     @Test

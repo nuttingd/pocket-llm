@@ -55,9 +55,9 @@ class ModelDownloadWorker(
     override suspend fun doWork(): Result {
         val modelId = inputData.getString(KEY_MODEL_ID) ?: return Result.failure()
         val modelUrl = inputData.getString(KEY_MODEL_URL) ?: return Result.failure()
-        val projectorUrl = inputData.getString(KEY_PROJECTOR_URL) ?: return Result.failure()
+        val projectorUrl = inputData.getString(KEY_PROJECTOR_URL)
         val modelFileName = inputData.getString(KEY_MODEL_FILE_NAME) ?: return Result.failure()
-        val projectorFileName = inputData.getString(KEY_PROJECTOR_FILE_NAME) ?: return Result.failure()
+        val projectorFileName = inputData.getString(KEY_PROJECTOR_FILE_NAME)
         val modelSizeBytes = inputData.getLong(KEY_MODEL_SIZE_BYTES, 0)
         val projectorSizeBytes = inputData.getLong(KEY_PROJECTOR_SIZE_BYTES, 0)
         val totalSize = modelSizeBytes + projectorSizeBytes
@@ -77,7 +77,7 @@ class ModelDownloadWorker(
 
         try {
             val modelFile = File(modelsDir, modelFileName)
-            val projectorFile = File(modelsDir, projectorFileName)
+            val hasProjector = !projectorUrl.isNullOrEmpty() && !projectorFileName.isNullOrEmpty()
 
             // Download model file
             downloader.download(modelUrl, modelFile).collect { progress ->
@@ -89,24 +89,34 @@ class ModelDownloadWorker(
                 updateNotificationThrottled(downloaded, totalSize)
             }
 
-            // Reset rate tracking for projector phase
-            rateSampleBytes = 0L
-            rateSampleTimeMs = 0L
+            // Download projector file if present
+            if (hasProjector) {
+                val projectorFile = File(modelsDir, projectorFileName!!)
 
-            // Download projector file
-            downloader.download(projectorUrl, projectorFile).collect { progress ->
-                val downloaded = modelSizeBytes + progress.bytesDownloaded
-                val totalProgress = downloaded.toFloat() / totalSize
-                updateRate(downloaded)
-                setProgress(workDataOf(KEY_PROGRESS to totalProgress, KEY_BYTES_PER_SEC to currentBytesPerSec))
-                localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, downloaded)
-                updateNotificationThrottled(downloaded, totalSize)
+                rateSampleBytes = 0L
+                rateSampleTimeMs = 0L
+
+                downloader.download(projectorUrl!!, projectorFile).collect { progress ->
+                    val downloaded = modelSizeBytes + progress.bytesDownloaded
+                    val totalProgress = downloaded.toFloat() / totalSize
+                    updateRate(downloaded)
+                    setProgress(workDataOf(KEY_PROGRESS to totalProgress, KEY_BYTES_PER_SEC to currentBytesPerSec))
+                    localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, downloaded)
+                    updateNotificationThrottled(downloaded, totalSize)
+                }
+
+                if (!ModelManagementViewModel.isValidGguf(projectorFile)) {
+                    Log.e(TAG, "GGUF validation failed for projector $projectorFileName")
+                    modelFile.delete()
+                    projectorFile.delete()
+                    localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                    postCompletionNotification(modelFileName, success = false)
+                    return Result.failure()
+                }
             }
 
-            // Validate GGUF magic number
-            if (ModelManagementViewModel.isValidGguf(modelFile) &&
-                ModelManagementViewModel.isValidGguf(projectorFile)
-            ) {
+            // Validate GGUF magic number for model file
+            if (ModelManagementViewModel.isValidGguf(modelFile)) {
                 localModelStore.updateStatus(modelId, DownloadStatus.COMPLETE, totalSize)
                 settingsDataStore.setActiveLocalModelId(modelId)
                 settingsDataStore.setInferenceProviderType("local")
@@ -116,7 +126,7 @@ class ModelDownloadWorker(
             } else {
                 Log.e(TAG, "GGUF validation failed for $modelFileName")
                 modelFile.delete()
-                projectorFile.delete()
+                if (hasProjector) File(modelsDir, projectorFileName!!).delete()
                 localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
                 postCompletionNotification(modelFileName, success = false)
                 return Result.failure()

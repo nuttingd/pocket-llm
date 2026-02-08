@@ -82,37 +82,21 @@ fun ModelManagementScreen(
         }
     }
 
-    var pendingModelUri by remember { mutableStateOf<Uri?>(null) }
     var isImporting by remember { mutableStateOf(false) }
-
-    val projectorPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        val modelUri = pendingModelUri
-        if (uri == null || modelUri == null) {
-            pendingModelUri = null
-            return@rememberLauncherForActivityResult
-        }
-        isImporting = true
-        scope.launch {
-            viewModel.importModel(
-                modelUri = modelUri,
-                projectorUri = uri,
-                modelFileName = getFileName(context, modelUri),
-                projectorFileName = getFileName(context, uri),
-            )
-            pendingModelUri = null
-            isImporting = false
-            snackbarHostState.showSnackbar("Model imported successfully")
-        }
-    }
 
     val modelPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        pendingModelUri = uri
-        projectorPicker.launch(arrayOf("*/*"))
+        isImporting = true
+        scope.launch {
+            viewModel.importModel(
+                modelUri = uri,
+                modelFileName = getFileName(context, uri),
+            )
+            isImporting = false
+            snackbarHostState.showSnackbar("Model imported successfully")
+        }
     }
 
     LaunchedEffect(state.errorMessage) {
@@ -249,14 +233,6 @@ fun ModelManagementScreen(
                     enabled = !isImporting,
                 ) {
                     Text(if (isImporting) "Importing..." else "Import GGUF Model")
-                }
-                if (pendingModelUri != null && !isImporting) {
-                    Text(
-                        "Now select the vision projector GGUF file...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
                 }
             }
 

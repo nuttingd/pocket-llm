@@ -46,15 +46,19 @@ class LocalInferenceProvider(
         }
 
         val modelFile = File(modelsDir, localModel.modelFileName)
-        val projectorFile = File(modelsDir, localModel.projectorFileName)
 
         if (!modelFile.exists()) {
             throw IllegalStateException("Model file not found: ${modelFile.absolutePath}")
         }
 
+        val projectorPath = if (localModel.projectorFileName.isNotEmpty()) {
+            val projectorFile = File(modelsDir, localModel.projectorFileName)
+            if (projectorFile.exists()) projectorFile.absolutePath else ""
+        } else ""
+
         llmEngine.loadModel(
             modelPath = modelFile.absolutePath,
-            projectorPath = if (projectorFile.exists()) projectorFile.absolutePath else "",
+            projectorPath = projectorPath,
             gpuOffloadPercent = gpuOffloadPercent,
             contextSize = localModel.contextWindowSize,
         )

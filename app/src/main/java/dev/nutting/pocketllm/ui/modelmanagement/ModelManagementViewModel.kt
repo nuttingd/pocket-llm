@@ -129,7 +129,7 @@ class ModelManagementViewModel(
                     parameterCount = entry.parameterCount,
                     quantization = entry.quantization,
                     modelFileName = entry.modelFileName,
-                    projectorFileName = entry.projectorFileName,
+                    projectorFileName = entry.projectorFileName ?: "",
                     modelSizeBytes = entry.modelSizeBytes,
                     projectorSizeBytes = entry.projectorSizeBytes,
                     downloadStatus = DownloadStatus.DOWNLOADING,
@@ -147,16 +147,19 @@ class ModelManagementViewModel(
 
             val notificationId = entry.id.hashCode().and(0x7FFFFFFF) % 10000 + 1001
 
-            val workData = workDataOf(
+            val workDataPairs = mutableListOf<Pair<String, Any>>(
                 ModelDownloadWorker.KEY_MODEL_ID to entry.id,
                 ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
-                ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
                 ModelDownloadWorker.KEY_MODEL_FILE_NAME to entry.modelFileName,
-                ModelDownloadWorker.KEY_PROJECTOR_FILE_NAME to entry.projectorFileName,
                 ModelDownloadWorker.KEY_MODEL_SIZE_BYTES to entry.modelSizeBytes,
                 ModelDownloadWorker.KEY_PROJECTOR_SIZE_BYTES to entry.projectorSizeBytes,
                 ModelDownloadWorker.KEY_NOTIFICATION_ID to notificationId,
             )
+            if (entry.hasProjector) {
+                workDataPairs += ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl!!
+                workDataPairs += ModelDownloadWorker.KEY_PROJECTOR_FILE_NAME to entry.projectorFileName!!
+            }
+            val workData = workDataOf(*workDataPairs.toTypedArray())
 
             val workRequest = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
                 .setInputData(workData)
@@ -221,7 +224,9 @@ class ModelManagementViewModel(
         viewModelScope.launch {
             val model = localModelStore.getById(modelId) ?: return@launch
             File(modelsDir, model.modelFileName).delete()
-            File(modelsDir, model.projectorFileName).delete()
+            if (model.projectorFileName.isNotEmpty()) {
+                File(modelsDir, model.projectorFileName).delete()
+            }
             localModelStore.delete(modelId)
         }
         _uiState.update { state ->
@@ -241,7 +246,9 @@ class ModelManagementViewModel(
             val model = localModelStore.getById(modelId) ?: return@launch
 
             File(modelsDir, model.modelFileName).delete()
-            File(modelsDir, model.projectorFileName).delete()
+            if (model.projectorFileName.isNotEmpty()) {
+                File(modelsDir, model.projectorFileName).delete()
+            }
 
             localModelStore.delete(modelId)
 
@@ -256,24 +263,17 @@ class ModelManagementViewModel(
 
     suspend fun importModel(
         modelUri: android.net.Uri,
-        projectorUri: android.net.Uri,
         modelFileName: String,
-        projectorFileName: String,
     ) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val modelFile = File(modelsDir, modelFileName)
-            val projectorFile = File(modelsDir, projectorFileName)
 
             appContext.contentResolver.openInputStream(modelUri)?.use { input ->
                 modelFile.outputStream().use { output -> input.copyTo(output) }
             }
-            appContext.contentResolver.openInputStream(projectorUri)?.use { input ->
-                projectorFile.outputStream().use { output -> input.copyTo(output) }
-            }
 
-            if (!isValidGguf(modelFile) || !isValidGguf(projectorFile)) {
+            if (!isValidGguf(modelFile)) {
                 modelFile.delete()
-                projectorFile.delete()
                 _uiState.update { it.copy(errorMessage = "Invalid GGUF file. Import cancelled.") }
                 return@withContext
             }
@@ -285,17 +285,15 @@ class ModelManagementViewModel(
                 parameterCount = "Unknown",
                 quantization = "Unknown",
                 modelFileName = modelFileName,
-                projectorFileName = projectorFileName,
                 modelSizeBytes = modelFile.length(),
-                projectorSizeBytes = projectorFile.length(),
                 downloadStatus = DownloadStatus.COMPLETE,
-                downloadedBytes = modelFile.length() + projectorFile.length(),
+                downloadedBytes = modelFile.length(),
                 isImported = true,
             )
             localModelStore.save(model)
             settingsDataStore.setActiveLocalModelId(id)
             settingsDataStore.setInferenceProviderType("local")
-            Log.i(TAG, "Model imported: $modelFileName + $projectorFileName")
+            Log.i(TAG, "Model imported: $modelFileName")
         }
     }
 
