@@ -21,7 +21,7 @@ class ModelDownloader {
 
     companion object {
         private const val TAG = "ModelDownloader"
-        private const val BUFFER_SIZE = 131_072 // 128 KB
+        private const val BUFFER_SIZE = 1_048_576 // 1 MB
         private const val EMIT_INTERVAL_MS = 250L
     }
 
@@ -31,6 +31,24 @@ class ModelDownloader {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
+        .socketFactory(object : javax.net.SocketFactory() {
+            private val default = getDefault()
+            override fun createSocket() = (default.createSocket() as java.net.Socket).apply {
+                receiveBufferSize = 1_048_576 // 1 MB receive buffer
+            }
+            override fun createSocket(host: String, port: Int) = (default.createSocket(host, port) as java.net.Socket).apply {
+                receiveBufferSize = 1_048_576
+            }
+            override fun createSocket(host: String, port: Int, localHost: java.net.InetAddress, localPort: Int) = (default.createSocket(host, port, localHost, localPort) as java.net.Socket).apply {
+                receiveBufferSize = 1_048_576
+            }
+            override fun createSocket(host: java.net.InetAddress, port: Int) = (default.createSocket(host, port) as java.net.Socket).apply {
+                receiveBufferSize = 1_048_576
+            }
+            override fun createSocket(host: java.net.InetAddress, port: Int, localHost: java.net.InetAddress, localPort: Int) = (default.createSocket(host, port, localHost, localPort) as java.net.Socket).apply {
+                receiveBufferSize = 1_048_576
+            }
+        })
         .build()
 
     fun download(url: String, destinationFile: File): Flow<Progress> = flow {
