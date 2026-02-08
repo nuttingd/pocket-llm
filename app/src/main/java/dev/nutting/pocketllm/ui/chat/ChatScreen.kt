@@ -91,13 +91,6 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Redirect to server config on first launch when no servers and no local models
-    LaunchedEffect(state.serversLoaded, state.availableServers.size, state.localModels.size) {
-        if (state.serversLoaded && state.availableServers.isEmpty() && state.localModels.isEmpty()) {
-            onNavigateToServers()
-        }
-    }
-
     // Scroll to new messages. During streaming, scroll once to anchor the
     // streaming bubble at the top of the viewport, then leave scrolling to the user.
     LaunchedEffect(state.messages.size, state.isStreaming) {
