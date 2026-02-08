@@ -232,23 +232,29 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
         return 2;
     }
 
-    // Init multimodal context
-    mtmd_context_params mtmd_params = mtmd_context_params_default();
-    mtmd_params.n_threads = threads;
-    mtmd_params.use_gpu = true;
-    mtmd_params.warmup = true;
-    mtmd_params.image_max_tokens = 512;
+    // Init multimodal context (only if projector path is provided)
+    if (proj_path && strlen(proj_path) > 0) {
+        mtmd_context_params mtmd_params = mtmd_context_params_default();
+        mtmd_params.n_threads = threads;
+        mtmd_params.use_gpu = true;
+        mtmd_params.warmup = true;
+        mtmd_params.image_max_tokens = 512;
 
-    g_mtmd = mtmd_init_from_file(proj_path, g_model, mtmd_params);
-    if (!g_mtmd) {
-        LOGe("Failed to init mtmd from %s", proj_path);
-        llama_free(g_context);
-        g_context = nullptr;
-        llama_model_free(g_model);
-        g_model = nullptr;
-        env->ReleaseStringUTFChars(jModelPath, model_path);
-        env->ReleaseStringUTFChars(jProjectorPath, proj_path);
-        return 3;
+        g_mtmd = mtmd_init_from_file(proj_path, g_model, mtmd_params);
+        if (!g_mtmd) {
+            LOGe("Failed to init mtmd from %s", proj_path);
+            llama_free(g_context);
+            g_context = nullptr;
+            llama_model_free(g_model);
+            g_model = nullptr;
+            env->ReleaseStringUTFChars(jModelPath, model_path);
+            env->ReleaseStringUTFChars(jProjectorPath, proj_path);
+            return 3;
+        }
+        LOGi("Multimodal projector loaded");
+    } else {
+        g_mtmd = nullptr;
+        LOGi("No projector — text-only mode");
     }
 
     env->ReleaseStringUTFChars(jModelPath, model_path);
