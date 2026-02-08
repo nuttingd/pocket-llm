@@ -97,7 +97,7 @@ class LocalInferenceProvider(
         // Collect progress tokens in a separate coroutine
         val progressJob = launch {
             llmEngine.progress.collect { progress ->
-                if (progress.tokenText.isNotEmpty()) {
+                if (progress.phase != "complete" && progress.tokenText.isNotEmpty()) {
                     tokenCount++
                     send(
                         ChatCompletionChunk(
