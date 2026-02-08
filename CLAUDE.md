@@ -37,6 +37,8 @@ Uses semantic-release on the `main` branch with Conventional Commits. CI (GitHub
 ## Active Technologies
 - Kotlin (managed by Kotlin Gradle Plugin 2.2.10), JDK 21 + Jetpack Compose (BOM 2026.01.00), Material 3, Room 2.8.4, Ktor Client 3.4.0, Navigation Compose 2.9.7, kotlinx-serialization-json 1.8.0, mikepenz markdown-renderer 0.39.2, Tink 1.13.0, DataStore 1.1.7 (001-llm-chat)
 - Room (SQLite) for conversations/messages, DataStore Preferences for settings, encrypted DataStore (Tink) for API keys (001-llm-chat)
+- Kotlin (KGP 2.2.10), JDK 21, C++17 (llama.cpp native code via NDK) + All from 001-llm-chat + llama.cpp (git submodule), OkHttp 4.12.0 (model downloads), WorkManager 2.11.0 (background downloads) (002-local-llm-inference)
+- Room (existing, migration 6→7 for `isLocalInference` column), DataStore Preferences (model metadata as JSON), app-private external storage (GGUF model files) (002-local-llm-inference)
 
 ## Recent Changes
 - 001-llm-chat: Added Kotlin (managed by Kotlin Gradle Plugin 2.2.10), JDK 21 + Jetpack Compose (BOM 2026.01.00), Material 3, Room 2.8.4, Ktor Client 3.4.0, Navigation Compose 2.9.7, kotlinx-serialization-json 1.8.0, mikepenz markdown-renderer 0.39.2, Tink 1.13.0, DataStore 1.1.7
