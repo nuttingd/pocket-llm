@@ -73,6 +73,7 @@ fun AppNavGraph(
                     llmEngine = container.llmEngine,
                     localModelStore = container.localModelStore,
                     modelsDir = container.modelsDir,
+                    apkPath = container.apkPath,
                 )
             }
             ChatScreen(
@@ -110,6 +111,7 @@ fun AppNavGraph(
                     llmEngine = container.llmEngine,
                     localModelStore = container.localModelStore,
                     modelsDir = container.modelsDir,
+                    apkPath = container.apkPath,
                 )
             }
             ChatScreen(

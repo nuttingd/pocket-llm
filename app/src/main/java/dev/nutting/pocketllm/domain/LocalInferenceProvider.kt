@@ -25,6 +25,7 @@ class LocalInferenceProvider(
     private val localModel: LocalModel,
     private val modelsDir: File,
     private val gpuOffloadPercent: Int = 0,
+    private val apkPath: String = "",
 ) : InferenceProvider {
 
     companion object {
@@ -44,6 +45,8 @@ class LocalInferenceProvider(
         if (llmEngine.isReady()) {
             llmEngine.unload()
         }
+
+        llmEngine.init(apkPath)
 
         val modelFile = File(modelsDir, localModel.modelFileName)
 

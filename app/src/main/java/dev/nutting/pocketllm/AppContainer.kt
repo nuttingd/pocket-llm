@@ -23,6 +23,7 @@ class AppContainer(context: Context) {
     val localModelStore = LocalModelStore(context)
     val llmEngine = LlmEngine()
     val modelsDir: File = File(context.getExternalFilesDir(null), "models").also { it.mkdirs() }
+    val apkPath: String = context.applicationInfo.sourceDir
 
     val serverRepository = ServerRepository(
         dao = database.serverProfileDao(),

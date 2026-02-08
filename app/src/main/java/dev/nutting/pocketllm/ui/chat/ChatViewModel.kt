@@ -55,6 +55,7 @@ class ChatViewModel(
     private val llmEngine: LlmEngine? = null,
     private val localModelStore: LocalModelStore? = null,
     private val modelsDir: java.io.File? = null,
+    private val apkPath: String = "",
 ) : ViewModel() {
 
     companion object {
@@ -368,6 +369,7 @@ class ChatViewModel(
             localModel = model,
             modelsDir = modelsDir,
             gpuOffloadPercent = gpuPercent,
+            apkPath = apkPath,
         )
     }
 
