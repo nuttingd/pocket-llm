@@ -407,19 +407,26 @@ class ChatViewModel(
 
     private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList()) {
         val state = _uiState.value
-        val server = state.selectedServer ?: run {
-            _uiState.update { it.copy(error = "No server selected") }
-            return
-        }
-        val modelId = state.selectedModelId ?: run {
-            _uiState.update { it.copy(error = "No model selected") }
-            return
-        }
 
         val resolved = resolvedParams()
 
         streamJob = viewModelScope.launch {
             val localProvider = resolveLocalProvider()
+
+            // Require a server/model only when not using local inference
+            val server = state.selectedServer
+            val modelId = state.selectedModelId
+            if (localProvider == null) {
+                if (server == null) {
+                    _uiState.update { it.copy(error = "No server selected") }
+                    return@launch
+                }
+                if (modelId == null) {
+                    _uiState.update { it.copy(error = "No model selected") }
+                    return@launch
+                }
+            }
+
             var conversationId = state.conversationId
             if (conversationId == null) {
                 conversationId = UUID.randomUUID().toString()
@@ -429,8 +436,8 @@ class ChatViewModel(
                     ConversationEntity(
                         id = conversationId,
                         title = title,
-                        lastServerProfileId = server.id,
-                        lastModelId = modelId,
+                        lastServerProfileId = server?.id,
+                        lastModelId = if (localProvider != null) "local" else modelId,
                         createdAt = now,
                         updatedAt = now,
                     )
@@ -451,8 +458,8 @@ class ChatViewModel(
             chatManager.sendMessage(
                 conversationId = conversationId,
                 content = content,
-                serverId = server.id,
-                modelId = if (localProvider != null) "local" else modelId,
+                serverId = server?.id ?: "",
+                modelId = if (localProvider != null) "local" else modelId ?: "",
                 systemPrompt = resolved.systemPrompt,
                 temperature = resolved.temperature,
                 maxTokens = resolved.maxTokens,

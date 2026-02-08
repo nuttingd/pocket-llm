@@ -91,9 +91,9 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Redirect to server config on first launch when no servers are configured
-    LaunchedEffect(state.serversLoaded, state.availableServers.size) {
-        if (state.serversLoaded && state.availableServers.isEmpty()) {
+    // Redirect to server config on first launch when no servers and no local models
+    LaunchedEffect(state.serversLoaded, state.availableServers.size, state.localModels.size) {
+        if (state.serversLoaded && state.availableServers.isEmpty() && state.localModels.isEmpty()) {
             onNavigateToServers()
         }
     }

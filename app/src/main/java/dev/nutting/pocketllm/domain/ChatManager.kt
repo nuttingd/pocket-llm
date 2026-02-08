@@ -73,12 +73,17 @@ class ChatManager(
     ): Flow<StreamState> = flow {
         isLocalInferenceActive = provider is LocalInferenceProvider
         try {
-            // Get server details
-            val server = serverRepository.getById(serverId).first()
-                ?: throw IllegalStateException("Server not found: $serverId")
-            val apiKey = if (server.hasApiKey) {
+            // Get server details (optional for local inference)
+            val server = if (serverId.isNotBlank()) {
+                serverRepository.getById(serverId).first()
+            } else null
+            val apiKey = if (server?.hasApiKey == true) {
                 serverRepository.getApiKey(serverId).first()
             } else null
+
+            if (server == null && provider == null) {
+                throw IllegalStateException("No server configured and no local provider available")
+            }
 
             // Get conversation to find active leaf
             val conversation = conversationRepository.getById(conversationId).first()
@@ -120,7 +125,7 @@ class ChatManager(
             val estimatedTokens = TokenCounter.estimateTokens(branchMessages)
             val compactionThreshold = (contextWindow * 0.75).toInt()
 
-            val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4) {
+            val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4 && server != null) {
                 val messagesToCompact = branchMessages.dropLast(4)
                 val recentMessages = branchMessages.takeLast(4)
 
@@ -212,10 +217,11 @@ class ChatManager(
                 val streamFlow = if (provider != null) {
                     provider.streamChatCompletion(request)
                 } else {
+                    val s = server ?: throw IllegalStateException("No server configured")
                     apiClient.streamChatCompletion(
-                        baseUrl = server.baseUrl,
+                        baseUrl = s.baseUrl,
                         apiKey = apiKey,
-                        timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                        timeoutSeconds = s.requestTimeoutSeconds.toLong(),
                         request = request,
                     )
                 }
