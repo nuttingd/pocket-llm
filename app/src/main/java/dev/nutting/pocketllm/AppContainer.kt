@@ -9,14 +9,20 @@ import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
+import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.domain.ChatManager
+import dev.nutting.pocketllm.llm.LlmEngine
+import java.io.File
 
 class AppContainer(context: Context) {
 
     private val database = PocketLlmDatabase.create(context)
-    private val apiClient = OpenAiApiClient()
+    val apiClient = OpenAiApiClient()
     private val encryptedDataStore = EncryptedDataStore(context)
-    private val settingsDataStore = SettingsDataStore(context)
+    val settingsDataStore = SettingsDataStore(context)
+    val localModelStore = LocalModelStore(context)
+    val llmEngine = LlmEngine()
+    val modelsDir: File = File(context.getExternalFilesDir(null), "models").also { it.mkdirs() }
 
     val serverRepository = ServerRepository(
         dao = database.serverProfileDao(),

@@ -31,6 +31,7 @@ class SettingsViewModel(
                     defaultFrequencyPenalty = settingsRepository.getDefaultFrequencyPenalty().first(),
                     defaultPresencePenalty = settingsRepository.getDefaultPresencePenalty().first(),
                     compactionThresholdPct = settingsRepository.getCompactionThresholdPct().first(),
+                    gpuOffloadPercent = settingsRepository.getGpuOffloadPercent().first(),
                 )
             }
         }
@@ -84,5 +85,10 @@ class SettingsViewModel(
     fun setCompactionThresholdPct(value: Int) {
         _uiState.update { it.copy(compactionThresholdPct = value) }
         viewModelScope.launch { settingsRepository.setCompactionThresholdPct(value) }
+    }
+
+    fun setGpuOffloadPercent(value: Int) {
+        _uiState.update { it.copy(gpuOffloadPercent = value) }
+        viewModelScope.launch { settingsRepository.setGpuOffloadPercent(value) }
     }
 }

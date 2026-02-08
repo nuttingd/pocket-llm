@@ -46,6 +46,8 @@ class ChatManager(
     private val compactionSummaryDao: CompactionSummaryDao? = null,
     private val toolDefinitionDao: ToolDefinitionDao? = null,
 ) {
+    /** When true, the current sendMessage call is using local inference. */
+    private var isLocalInferenceActive = false
     private var currentJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -67,7 +69,9 @@ class ChatManager(
         frequencyPenalty: Float? = null,
         presencePenalty: Float? = null,
         imageDataUrls: List<String> = emptyList(),
+        provider: InferenceProvider? = null,
     ): Flow<StreamState> = flow {
+        isLocalInferenceActive = provider is LocalInferenceProvider
         try {
             // Get server details
             val server = serverRepository.getById(serverId).first()
@@ -205,12 +209,17 @@ class ChatManager(
                 var finishReason: String? = null
 
                 currentJob = currentCoroutineContext()[Job]
-                apiClient.streamChatCompletion(
-                    baseUrl = server.baseUrl,
-                    apiKey = apiKey,
-                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-                    request = request,
-                ).collect { chunk ->
+                val streamFlow = if (provider != null) {
+                    provider.streamChatCompletion(request)
+                } else {
+                    apiClient.streamChatCompletion(
+                        baseUrl = server.baseUrl,
+                        apiKey = apiKey,
+                        timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                        request = request,
+                    )
+                }
+                streamFlow.collect { chunk ->
                     val choice = chunk.choices.firstOrNull()
                     val delta = choice?.delta
                     choice?.finishReason?.let { finishReason = it }
@@ -269,6 +278,7 @@ class ChatManager(
                         completionTokens = usage?.completionTokens,
                         totalTokens = usage?.totalTokens,
                         depth = lastParentMessage.depth + 1,
+                        isLocalInference = isLocalInferenceActive,
                         createdAt = System.currentTimeMillis(),
                     )
                     messageRepository.insertMessage(assistantMsg)
@@ -337,6 +347,7 @@ class ChatManager(
                         completionTokens = usage?.completionTokens,
                         totalTokens = usage?.totalTokens,
                         depth = lastParentMessage.depth + 1,
+                        isLocalInference = isLocalInferenceActive,
                         createdAt = System.currentTimeMillis(),
                     )
                     messageRepository.insertMessage(assistantMessage)

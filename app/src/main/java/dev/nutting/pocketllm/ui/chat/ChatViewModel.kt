@@ -16,10 +16,16 @@ import android.content.Context
 import android.net.Uri
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
+import dev.nutting.pocketllm.data.local.model.DownloadStatus
+import dev.nutting.pocketllm.data.local.model.LocalModelStore
+import dev.nutting.pocketllm.data.preferences.SettingsDataStore
 import dev.nutting.pocketllm.util.ImageCompressor
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
+import dev.nutting.pocketllm.domain.InferenceProvider
+import dev.nutting.pocketllm.domain.LocalInferenceProvider
 import dev.nutting.pocketllm.domain.StreamState
+import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
@@ -45,6 +51,10 @@ class ChatViewModel(
     private val toolDefinitionDao: ToolDefinitionDao? = null,
     private val parameterPresetDao: ParameterPresetDao? = null,
     private val compactionSummaryDao: CompactionSummaryDao? = null,
+    private val settingsDataStore: SettingsDataStore? = null,
+    private val llmEngine: LlmEngine? = null,
+    private val localModelStore: LocalModelStore? = null,
+    private val modelsDir: java.io.File? = null,
 ) : ViewModel() {
 
     companion object {
@@ -69,6 +79,8 @@ class ChatViewModel(
         loadTools()
         loadPresets()
         observeFontSize()
+        observeLocalModels()
+        observeInferenceProvider()
         chatManager.toolApprovalCallback = { toolCalls ->
             val deferred = CompletableDeferred<Boolean>()
             toolApprovalDeferred = deferred
@@ -101,6 +113,31 @@ class ChatViewModel(
         viewModelScope.launch {
             settingsRepository.getMessageFontSizeSp().collect { sp ->
                 _uiState.update { it.copy(messageFontSizeSp = sp) }
+            }
+        }
+    }
+
+    private fun observeLocalModels() {
+        if (localModelStore == null) return
+        viewModelScope.launch {
+            localModelStore.models.collect { models ->
+                val completedModels = models.filter { it.downloadStatus == DownloadStatus.COMPLETE }
+                val modelInfos = completedModels.map { model ->
+                    dev.nutting.pocketllm.data.remote.model.ModelInfo(
+                        id = model.id,
+                        ownedBy = "local",
+                    )
+                }
+                _uiState.update { it.copy(localModels = modelInfos) }
+            }
+        }
+    }
+
+    private fun observeInferenceProvider() {
+        if (settingsDataStore == null) return
+        viewModelScope.launch {
+            settingsDataStore.getInferenceProviderType().collect { providerType ->
+                _uiState.update { it.copy(isUsingLocalInference = providerType == "local") }
             }
         }
     }
@@ -317,6 +354,23 @@ class ChatViewModel(
         }
     }
 
+    private suspend fun resolveLocalProvider(): InferenceProvider? {
+        if (settingsDataStore == null || llmEngine == null || localModelStore == null || modelsDir == null) return null
+        val providerType = settingsDataStore.getInferenceProviderType().first()
+        if (providerType != "local") return null
+        val modelId = settingsDataStore.getActiveLocalModelId().first()
+        if (modelId.isBlank()) return null
+        val model = localModelStore.getById(modelId) ?: return null
+        if (model.downloadStatus != DownloadStatus.COMPLETE) return null
+        val gpuPercent = settingsDataStore.getGpuOffloadPercent().first()
+        return LocalInferenceProvider(
+            llmEngine = llmEngine,
+            localModel = model,
+            modelsDir = modelsDir,
+            gpuOffloadPercent = gpuPercent,
+        )
+    }
+
     private fun resolvedParams(): ResolvedParams {
         val state = _uiState.value
         val conv = state.conversationParams
@@ -365,6 +419,7 @@ class ChatViewModel(
         val resolved = resolvedParams()
 
         streamJob = viewModelScope.launch {
+            val localProvider = resolveLocalProvider()
             var conversationId = state.conversationId
             if (conversationId == null) {
                 conversationId = UUID.randomUUID().toString()
@@ -397,7 +452,7 @@ class ChatViewModel(
                 conversationId = conversationId,
                 content = content,
                 serverId = server.id,
-                modelId = modelId,
+                modelId = if (localProvider != null) "local" else modelId,
                 systemPrompt = resolved.systemPrompt,
                 temperature = resolved.temperature,
                 maxTokens = resolved.maxTokens,
@@ -405,6 +460,7 @@ class ChatViewModel(
                 frequencyPenalty = resolved.frequencyPenalty,
                 presencePenalty = resolved.presencePenalty,
                 imageDataUrls = imageDataUrls,
+                provider = localProvider,
             ).collect { streamState ->
                 when (streamState) {
                     is StreamState.Delta -> {
@@ -448,6 +504,7 @@ class ChatViewModel(
     }
 
     fun stopGeneration() {
+        llmEngine?.cancel()
         chatManager.stopGeneration()
         _uiState.update { it.copy(isStreaming = false) }
     }

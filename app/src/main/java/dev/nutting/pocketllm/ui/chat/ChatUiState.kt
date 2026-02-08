@@ -16,6 +16,8 @@ data class ChatUiState(
     val selectedServer: ServerProfileEntity? = null,
     val selectedModelId: String? = null,
     val availableModels: List<ModelInfo> = emptyList(),
+    val localModels: List<ModelInfo> = emptyList(),
+    val isUsingLocalInference: Boolean = false,
     val availableServers: List<ServerProfileEntity> = emptyList(),
     val serversLoaded: Boolean = false,
     val error: String? = null,

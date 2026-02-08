@@ -89,16 +89,34 @@ fun MessageBubble(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = alignment,
     ) {
-        Text(
-            text = when {
-                isUser -> "You"
-                isTool -> "Tool Result"
-                else -> "Assistant"
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-        )
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = when {
+                    isUser -> "You"
+                    isTool -> "Tool Result"
+                    else -> "Assistant"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!isUser && message.isLocalInference) {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = "Local",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
+        }
         var showMenu by remember { mutableStateOf(false) }
 
         Box {

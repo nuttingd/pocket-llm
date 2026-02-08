@@ -11,4 +11,5 @@ data class SettingsUiState(
     val defaultFrequencyPenalty: Float = 0.0f,
     val defaultPresencePenalty: Float = 0.0f,
     val compactionThresholdPct: Int = 75,
+    val gpuOffloadPercent: Int = 0,
 )

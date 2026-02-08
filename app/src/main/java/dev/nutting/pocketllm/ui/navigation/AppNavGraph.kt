@@ -18,6 +18,8 @@ import dev.nutting.pocketllm.ui.chat.ChatViewModel
 import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
 import dev.nutting.pocketllm.ui.server.ServerConfigScreen
 import dev.nutting.pocketllm.ui.server.ServerConfigViewModel
+import dev.nutting.pocketllm.ui.modelmanagement.ModelManagementScreen
+import dev.nutting.pocketllm.ui.modelmanagement.ModelManagementViewModel
 import dev.nutting.pocketllm.ui.settings.SettingsScreen
 import dev.nutting.pocketllm.ui.settings.SettingsViewModel
 
@@ -67,6 +69,10 @@ fun AppNavGraph(
                     toolDefinitionDao = container.toolDefinitionDao,
                     parameterPresetDao = container.parameterPresetDao,
                     compactionSummaryDao = container.compactionSummaryDao,
+                    settingsDataStore = container.settingsDataStore,
+                    llmEngine = container.llmEngine,
+                    localModelStore = container.localModelStore,
+                    modelsDir = container.modelsDir,
                 )
             }
             ChatScreen(
@@ -100,6 +106,10 @@ fun AppNavGraph(
                     toolDefinitionDao = container.toolDefinitionDao,
                     parameterPresetDao = container.parameterPresetDao,
                     compactionSummaryDao = container.compactionSummaryDao,
+                    settingsDataStore = container.settingsDataStore,
+                    llmEngine = container.llmEngine,
+                    localModelStore = container.localModelStore,
+                    modelsDir = container.modelsDir,
                 )
             }
             ChatScreen(
@@ -157,6 +167,21 @@ fun AppNavGraph(
                 viewModel = settingsViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToServers = { navController.navigate(ServerConfig) },
+                onNavigateToLocalModels = { navController.navigate(ModelManagement) },
+            )
+        }
+        composable<ModelManagement> {
+            val modelManagementViewModel = remember {
+                ModelManagementViewModel(
+                    localModelStore = container.localModelStore,
+                    settingsDataStore = container.settingsDataStore,
+                    modelsDir = container.modelsDir,
+                    appContext = context.applicationContext as dev.nutting.pocketllm.PocketLlmApplication,
+                )
+            }
+            ModelManagementScreen(
+                viewModel = modelManagementViewModel,
+                onNavigateBack = { navController.popBackStack() },
             )
         }
     }

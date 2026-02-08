@@ -400,7 +400,7 @@ private fun ServerModelSelector(
     var showServerMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
 
-    val serverName = state.selectedServer?.name ?: "No server"
+    val serverName = if (state.isUsingLocalInference) "Local" else state.selectedServer?.name ?: "No server"
     val modelName = if (state.isLoadingModels) {
         "Loading..."
     } else {
@@ -426,7 +426,8 @@ private fun ServerModelSelector(
             Text(
                 "$serverName · $modelName",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (state.isUsingLocalInference) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -445,14 +446,51 @@ private fun ServerModelSelector(
         }
 
         DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
-            state.availableModels.forEach { model ->
+            if (state.localModels.isNotEmpty()) {
                 DropdownMenuItem(
-                    text = { Text(model.id) },
-                    onClick = {
-                        showModelMenu = false
-                        onSwitchModel(model.id)
+                    text = {
+                        Text(
+                            "Local Models",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
+                    onClick = {},
+                    enabled = false,
                 )
+                state.localModels.forEach { model ->
+                    DropdownMenuItem(
+                        text = { Text("${model.id} (Local)") },
+                        onClick = {
+                            showModelMenu = false
+                            onSwitchModel(model.id)
+                        },
+                    )
+                }
+            }
+            if (state.availableModels.isNotEmpty()) {
+                if (state.localModels.isNotEmpty()) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Remote Models",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = {},
+                        enabled = false,
+                    )
+                }
+                state.availableModels.forEach { model ->
+                    DropdownMenuItem(
+                        text = { Text(model.id) },
+                        onClick = {
+                            showModelMenu = false
+                            onSwitchModel(model.id)
+                        },
+                    )
+                }
             }
         }
     }

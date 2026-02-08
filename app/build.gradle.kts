@@ -34,6 +34,35 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += "-DCMAKE_BUILD_TYPE=Release"
+
+                arguments += "-DBUILD_SHARED_LIBS=ON"
+                arguments += "-DLLAMA_BUILD_COMMON=ON"
+                arguments += "-DLLAMA_OPENSSL=OFF"
+
+                arguments += "-DGGML_NATIVE=OFF"
+                arguments += "-DGGML_BACKEND_DL=ON"
+                arguments += "-DGGML_CPU_ALL_VARIANTS=ON"
+                arguments += "-DGGML_LLAMAFILE=OFF"
+                arguments += "-DGGML_CPU_KLEIDIAI=OFF"
+
+                // Vulkan C++ headers: Homebrew on macOS, isolated headers on Linux CI
+                cppFlags += "-isystem /opt/homebrew/include"
+                cppFlags += "-isystem /opt/vulkan-headers"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path("src/main/cpp/CMakeLists.txt")
+        }
     }
 
     signingConfigs {
@@ -118,6 +147,15 @@ dependencies {
 
     // Image loading
     implementation("io.coil-kt.coil3:coil-compose:3.1.0")
+
+    // Model downloads (OkHttp is already a transitive dep via Ktor-OkHttp engine)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Background download worker
+    implementation("androidx.work:work-runtime-ktx:2.11.0")
+
+    // Coroutines (for LlmEngine native dispatch)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

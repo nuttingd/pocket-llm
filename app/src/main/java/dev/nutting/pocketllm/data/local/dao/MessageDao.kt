@@ -31,7 +31,7 @@ interface MessageDao {
         """
         WITH RECURSIVE branch(id, conversationId, parentMessageId, role, content, thinkingContent,
             serverProfileId, modelId, promptTokens, completionTokens, totalTokens,
-            toolCallId, toolCallsJson, imageUris, depth, childCount, createdAt) AS (
+            toolCallId, toolCallsJson, imageUris, depth, childCount, isLocalInference, createdAt) AS (
             SELECT * FROM messages WHERE id = :leafId
             UNION ALL
             SELECT m.* FROM messages m INNER JOIN branch b ON m.id = b.parentMessageId

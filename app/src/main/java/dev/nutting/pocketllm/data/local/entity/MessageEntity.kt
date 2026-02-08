@@ -44,5 +44,6 @@ data class MessageEntity(
     val imageUris: String? = null,
     val depth: Int = 0,
     val childCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val isLocalInference: Boolean = false,
     val createdAt: Long,
 )

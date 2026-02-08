@@ -60,6 +60,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
     onNavigateToServers: () -> Unit = {},
+    onNavigateToLocalModels: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -115,6 +116,40 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            // Local Models
+            SectionHeader("Local Models")
+
+            Surface(
+                onClick = onNavigateToLocalModels,
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Manage on-device models", style = MaterialTheme.typography.bodyLarge)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            SliderSetting(
+                label = "GPU offload",
+                value = state.gpuOffloadPercent.toFloat(),
+                valueRange = 0f..100f,
+                steps = 9,
+                valueLabel = "${state.gpuOffloadPercent}%",
+                onValueChange = { viewModel.setGpuOffloadPercent(it.roundToInt()) },
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
