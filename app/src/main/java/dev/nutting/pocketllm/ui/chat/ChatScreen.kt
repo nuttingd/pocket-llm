@@ -70,6 +70,7 @@ fun ChatScreen(
     conversationListViewModel: ConversationListViewModel,
     onNavigateToServers: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToModels: () -> Unit = {},
     onConversationSelected: (String?) -> Unit,
     conversationId: String?,
 ) {
@@ -91,9 +92,9 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Redirect to server config on first launch when no servers are configured
-    LaunchedEffect(state.serversLoaded, state.availableServers.size) {
-        if (state.serversLoaded && state.availableServers.isEmpty()) {
+    // Redirect to server config on first launch when no servers are configured and no local models
+    LaunchedEffect(state.serversLoaded, state.availableServers.size, state.localModels.size) {
+        if (state.serversLoaded && state.availableServers.isEmpty() && state.localModels.isEmpty()) {
             onNavigateToServers()
         }
     }
@@ -179,6 +180,8 @@ fun ChatScreen(
                                 state = state,
                                 onSwitchServer = viewModel::switchServer,
                                 onSwitchModel = viewModel::switchModel,
+                                onSwitchToLocal = viewModel::switchToLocal,
+                                onSwitchToRemote = viewModel::switchToRemote,
                             )
                         }
                     },
@@ -191,6 +194,7 @@ fun ChatScreen(
                         }
                         ChatOverflowMenu(
                             onNavigateToSettings = onNavigateToSettings,
+                            onNavigateToModels = onNavigateToModels,
                             onCompact = viewModel::compactConversation,
                             onSaveToFile = {
                                 val title = state.conversationTitle.replace(Regex("[^a-zA-Z0-9 ]"), "").take(40)
@@ -345,6 +349,7 @@ private fun ChatContent(
 @Composable
 private fun ChatOverflowMenu(
     onNavigateToSettings: () -> Unit,
+    onNavigateToModels: () -> Unit = {},
     onCompact: () -> Unit,
     onSaveToFile: () -> Unit = {},
     onShare: () -> Unit = {},
@@ -381,6 +386,13 @@ private fun ChatOverflowMenu(
                 },
             )
             DropdownMenuItem(
+                text = { Text("Local Models") },
+                onClick = {
+                    expanded = false
+                    onNavigateToModels()
+                },
+            )
+            DropdownMenuItem(
                 text = { Text("Settings") },
                 onClick = {
                     expanded = false
@@ -396,23 +408,33 @@ private fun ServerModelSelector(
     state: ChatUiState,
     onSwitchServer: (String) -> Unit,
     onSwitchModel: (String) -> Unit,
+    onSwitchToLocal: (String) -> Unit = {},
+    onSwitchToRemote: () -> Unit = {},
 ) {
     var showServerMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
 
-    val serverName = state.selectedServer?.name ?: "No server"
+    val serverName = if (state.useLocalModel) {
+        "Local"
+    } else {
+        state.selectedServer?.name ?: "No server"
+    }
     val modelName = if (state.isLoadingModels) {
         "Loading..."
     } else {
         state.selectedModelId?.let { id ->
-            id.substringAfterLast("/").ifBlank { id }
+            if (state.useLocalModel) {
+                state.localModels.find { it.id == id }?.name ?: id
+            } else {
+                id.substringAfterLast("/").ifBlank { id }
+            }
         } ?: "No model"
     }
 
     Box {
         TextButton(
             onClick = {
-                if (state.availableServers.size > 1) showServerMenu = true
+                if (state.availableServers.size > 1 || state.localModels.isNotEmpty()) showServerMenu = true
                 else showModelMenu = true
             },
             modifier = Modifier.semantics { contentDescription = "Switch server or model" },
@@ -433,11 +455,26 @@ private fun ServerModelSelector(
         }
 
         DropdownMenu(expanded = showServerMenu, onDismissRequest = { showServerMenu = false }) {
+            // Local models section
+            state.localModels.forEach { model ->
+                DropdownMenuItem(
+                    text = { Text("Local: ${model.name}") },
+                    onClick = {
+                        showServerMenu = false
+                        onSwitchToLocal(model.id)
+                    },
+                )
+            }
+            // Remote servers
+            if (state.localModels.isNotEmpty() && state.availableServers.isNotEmpty()) {
+                androidx.compose.material3.HorizontalDivider()
+            }
             state.availableServers.forEach { server ->
                 DropdownMenuItem(
                     text = { Text(server.name) },
                     onClick = {
                         showServerMenu = false
+                        onSwitchToRemote()
                         onSwitchServer(server.id)
                     },
                 )

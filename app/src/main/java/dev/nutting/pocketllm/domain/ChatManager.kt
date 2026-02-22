@@ -45,6 +45,7 @@ class ChatManager(
     private val apiClient: OpenAiApiClient,
     private val compactionSummaryDao: CompactionSummaryDao? = null,
     private val toolDefinitionDao: ToolDefinitionDao? = null,
+    private val localLlmClient: LocalLlmClient? = null,
 ) {
     private var currentJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
@@ -52,6 +53,8 @@ class ChatManager(
     companion object {
         private const val TAG = "ChatManager"
     }
+
+    private val isLocalServer: (String) -> Boolean = { it == LocalLlmClient.LOCAL_SERVER_ID }
 
     var toolApprovalCallback: (suspend (List<ToolCall>) -> Boolean)? = null
 
@@ -69,12 +72,21 @@ class ChatManager(
         imageDataUrls: List<String> = emptyList(),
     ): Flow<StreamState> = flow {
         try {
-            // Get server details
-            val server = serverRepository.getById(serverId).first()
-                ?: throw IllegalStateException("Server not found: $serverId")
-            val apiKey = if (server.hasApiKey) {
+            // Resolve server details (skip for local models)
+            val isLocal = isLocalServer(serverId)
+            val server = if (isLocal) null else {
+                serverRepository.getById(serverId).first()
+                    ?: throw IllegalStateException("Server not found: $serverId")
+            }
+            val apiKey = if (!isLocal && server?.hasApiKey == true) {
                 serverRepository.getApiKey(serverId).first()
             } else null
+
+            // Ensure local model is loaded
+            if (isLocal) {
+                localLlmClient?.ensureModelLoaded(modelId)
+                    ?: throw IllegalStateException("Local LLM not available")
+            }
 
             // Get conversation to find active leaf
             val conversation = conversationRepository.getById(conversationId).first()
@@ -111,19 +123,19 @@ class ChatManager(
             // Build message list from active branch
             val branchMessages = messageRepository.getActiveBranch(anchorMessage.id).first()
 
-            // Check if compaction is needed
+            // Check if compaction is needed (skip for local models — context is limited)
             val contextWindow = (maxTokens ?: 2048) * 4
             val estimatedTokens = TokenCounter.estimateTokens(branchMessages)
             val compactionThreshold = (contextWindow * 0.75).toInt()
 
-            val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4) {
+            val effectiveMessages = if (!isLocal && estimatedTokens > compactionThreshold && branchMessages.size > 4) {
                 val messagesToCompact = branchMessages.dropLast(4)
                 val recentMessages = branchMessages.takeLast(4)
 
                 val summary = tryCompactMessages(
                     messagesToCompact = messagesToCompact,
                     conversationId = conversationId,
-                    baseUrl = server.baseUrl,
+                    baseUrl = server!!.baseUrl,
                     apiKey = apiKey,
                     timeoutSeconds = server.requestTimeoutSeconds.toLong(),
                     modelId = modelId,
@@ -186,18 +198,6 @@ class ChatManager(
             while (continueLoop) {
                 continueLoop = false
 
-                val request = ChatCompletionRequest(
-                    model = modelId,
-                    messages = chatMessages,
-                    temperature = temperature,
-                    maxTokens = maxTokens,
-                    topP = topP,
-                    frequencyPenalty = frequencyPenalty,
-                    presencePenalty = presencePenalty,
-                    stream = true,
-                    tools = toolParams,
-                )
-
                 val accumulatedContent = StringBuilder()
                 val accumulatedThinking = StringBuilder()
                 val accumulatedToolCalls = mutableMapOf<Int, AccumulatedToolCall>()
@@ -205,12 +205,36 @@ class ChatManager(
                 var finishReason: String? = null
 
                 currentJob = currentCoroutineContext()[Job]
-                apiClient.streamChatCompletion(
-                    baseUrl = server.baseUrl,
-                    apiKey = apiKey,
-                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-                    request = request,
-                ).collect { chunk ->
+
+                // Choose streaming source: local LLM or remote API
+                val chunkFlow = if (isLocal) {
+                    localLlmClient!!.streamChatCompletion(
+                        messages = chatMessages,
+                        temperature = temperature,
+                        maxTokens = maxTokens,
+                        topP = topP,
+                    )
+                } else {
+                    val request = ChatCompletionRequest(
+                        model = modelId,
+                        messages = chatMessages,
+                        temperature = temperature,
+                        maxTokens = maxTokens,
+                        topP = topP,
+                        frequencyPenalty = frequencyPenalty,
+                        presencePenalty = presencePenalty,
+                        stream = true,
+                        tools = toolParams,
+                    )
+                    apiClient.streamChatCompletion(
+                        baseUrl = server!!.baseUrl,
+                        apiKey = apiKey,
+                        timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                        request = request,
+                    )
+                }
+
+                chunkFlow.collect { chunk ->
                     val choice = chunk.choices.firstOrNull()
                     val delta = choice?.delta
                     choice?.finishReason?.let { finishReason = it }
@@ -473,6 +497,7 @@ class ChatManager(
     }
 
     fun stopGeneration() {
+        localLlmClient?.cancel()
         currentJob?.cancel()
         currentJob = null
     }

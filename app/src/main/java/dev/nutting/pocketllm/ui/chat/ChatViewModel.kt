@@ -16,9 +16,13 @@ import android.content.Context
 import android.net.Uri
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
+import dev.nutting.pocketllm.data.local.model.DownloadStatus
+import dev.nutting.pocketllm.data.local.model.LocalModelStore
+import dev.nutting.pocketllm.data.remote.model.ModelInfo
 import dev.nutting.pocketllm.util.ImageCompressor
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
+import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.domain.StreamState
 import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.CompletableDeferred
@@ -42,6 +46,7 @@ class ChatViewModel(
     private val messageRepository: MessageRepository,
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
+    private val localModelStore: LocalModelStore? = null,
     private val toolDefinitionDao: ToolDefinitionDao? = null,
     private val parameterPresetDao: ParameterPresetDao? = null,
     private val compactionSummaryDao: CompactionSummaryDao? = null,
@@ -69,6 +74,7 @@ class ChatViewModel(
         loadTools()
         loadPresets()
         observeFontSize()
+        observeLocalModels()
         chatManager.toolApprovalCallback = { toolCalls ->
             val deferred = CompletableDeferred<Boolean>()
             toolApprovalDeferred = deferred
@@ -103,6 +109,38 @@ class ChatViewModel(
                 _uiState.update { it.copy(messageFontSizeSp = sp) }
             }
         }
+    }
+
+    private fun observeLocalModels() {
+        viewModelScope.launch {
+            localModelStore?.models?.collect { models ->
+                val completed = models.filter { it.downloadStatus == DownloadStatus.COMPLETE }
+                _uiState.update { it.copy(localModels = completed) }
+            }
+        }
+        viewModelScope.launch {
+            localModelStore?.activeModelId?.collect { activeId ->
+                _uiState.update { it.copy(activeLocalModelId = activeId) }
+            }
+        }
+    }
+
+    fun switchToLocal(modelId: String) {
+        _uiState.update {
+            it.copy(
+                useLocalModel = true,
+                selectedServer = null,
+                selectedModelId = modelId,
+                availableModels = it.localModels.map { m -> ModelInfo(id = m.id, ownedBy = "local") },
+                isLoadingModels = false,
+            )
+        }
+        persistServerAndModel()
+    }
+
+    fun switchToRemote() {
+        _uiState.update { it.copy(useLocalModel = false) }
+        loadServerAndModels()
     }
 
     private fun loadServers() {
@@ -353,9 +391,14 @@ class ChatViewModel(
 
     private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList()) {
         val state = _uiState.value
-        val server = state.selectedServer ?: run {
-            _uiState.update { it.copy(error = "No server selected") }
-            return
+        val isLocal = state.useLocalModel
+        val serverId = if (isLocal) {
+            LocalLlmClient.LOCAL_SERVER_ID
+        } else {
+            state.selectedServer?.id ?: run {
+                _uiState.update { it.copy(error = "No server selected") }
+                return
+            }
         }
         val modelId = state.selectedModelId ?: run {
             _uiState.update { it.copy(error = "No model selected") }
@@ -374,7 +417,7 @@ class ChatViewModel(
                     ConversationEntity(
                         id = conversationId,
                         title = title,
-                        lastServerProfileId = server.id,
+                        lastServerProfileId = serverId,
                         lastModelId = modelId,
                         createdAt = now,
                         updatedAt = now,
@@ -396,7 +439,7 @@ class ChatViewModel(
             chatManager.sendMessage(
                 conversationId = conversationId,
                 content = content,
-                serverId = server.id,
+                serverId = serverId,
                 modelId = modelId,
                 systemPrompt = resolved.systemPrompt,
                 temperature = resolved.temperature,
@@ -491,7 +534,8 @@ class ChatViewModel(
     fun regenerateMessage(message: MessageEntity) {
         val parentId = message.parentMessageId ?: return
         val state = _uiState.value
-        val server = state.selectedServer ?: return
+        val isLocal = state.useLocalModel
+        val serverId = if (isLocal) LocalLlmClient.LOCAL_SERVER_ID else (state.selectedServer?.id ?: return)
         val modelId = state.selectedModelId ?: return
         val resolved = resolvedParams()
 
@@ -506,7 +550,7 @@ class ChatViewModel(
             chatManager.sendMessage(
                 conversationId = message.conversationId,
                 content = "", // Empty - we're regenerating from the parent's user message
-                serverId = server.id,
+                serverId = serverId,
                 modelId = modelId,
                 systemPrompt = resolved.systemPrompt,
                 temperature = resolved.temperature,
@@ -627,6 +671,15 @@ class ChatViewModel(
     private fun generateTitle(conversationId: String, userMessage: String, assistantMessage: String) {
         viewModelScope.launch {
             val state = _uiState.value
+
+            // For local models, use simple title from first message
+            if (state.useLocalModel) {
+                val title = userMessage.take(50).let { if (userMessage.length > 50) "$it..." else it }
+                conversationRepository.rename(conversationId, title)
+                _uiState.update { it.copy(conversationTitle = title) }
+                return@launch
+            }
+
             val server = state.selectedServer ?: return@launch
             val modelId = state.selectedModelId ?: return@launch
             val apiKey = if (server.hasApiKey) {

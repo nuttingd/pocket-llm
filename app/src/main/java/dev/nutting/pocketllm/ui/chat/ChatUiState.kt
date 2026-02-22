@@ -5,6 +5,7 @@ import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
+import dev.nutting.pocketllm.data.local.model.LocalModel
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
 import dev.nutting.pocketllm.data.remote.model.ToolCall
 
@@ -34,4 +35,8 @@ data class ChatUiState(
     val messageFontSizeSp: Int = 16,
     val editingMessage: MessageEntity? = null,
     val compactionSummaries: List<CompactionSummaryEntity> = emptyList(),
+    // Local LLM
+    val useLocalModel: Boolean = false,
+    val localModels: List<LocalModel> = emptyList(),
+    val activeLocalModelId: String? = null,
 )

@@ -16,6 +16,8 @@ import dev.nutting.pocketllm.PocketLlmApplication
 import dev.nutting.pocketllm.ui.chat.ChatScreen
 import dev.nutting.pocketllm.ui.chat.ChatViewModel
 import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
+import dev.nutting.pocketllm.ui.modelmanagement.ModelManagementScreen
+import dev.nutting.pocketllm.ui.modelmanagement.ModelManagementViewModel
 import dev.nutting.pocketllm.ui.server.ServerConfigScreen
 import dev.nutting.pocketllm.ui.server.ServerConfigViewModel
 import dev.nutting.pocketllm.ui.settings.SettingsScreen
@@ -64,6 +66,7 @@ fun AppNavGraph(
                     messageRepository = container.messageRepository,
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
+                    localModelStore = container.localModelStore,
                     toolDefinitionDao = container.toolDefinitionDao,
                     parameterPresetDao = container.parameterPresetDao,
                     compactionSummaryDao = container.compactionSummaryDao,
@@ -74,6 +77,7 @@ fun AppNavGraph(
                 conversationListViewModel = conversationListViewModel,
                 onNavigateToServers = { navController.navigate(ServerConfig) },
                 onNavigateToSettings = { navController.navigate(Settings) },
+                onNavigateToModels = { navController.navigate(ModelManagement) },
                 onConversationSelected = { id ->
                     if (id != null) {
                         navController.navigate(Chat(conversationId = id)) {
@@ -97,6 +101,7 @@ fun AppNavGraph(
                     messageRepository = container.messageRepository,
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
+                    localModelStore = container.localModelStore,
                     toolDefinitionDao = container.toolDefinitionDao,
                     parameterPresetDao = container.parameterPresetDao,
                     compactionSummaryDao = container.compactionSummaryDao,
@@ -107,6 +112,7 @@ fun AppNavGraph(
                 conversationListViewModel = conversationListViewModel,
                 onNavigateToServers = { navController.navigate(ServerConfig) },
                 onNavigateToSettings = { navController.navigate(Settings) },
+                onNavigateToModels = { navController.navigate(ModelManagement) },
                 onConversationSelected = { id ->
                     if (id != null) {
                         navController.navigate(Chat(conversationId = id)) {
@@ -157,6 +163,20 @@ fun AppNavGraph(
                 viewModel = settingsViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToServers = { navController.navigate(ServerConfig) },
+            )
+        }
+        composable<ModelManagement> {
+            val modelManagementViewModel = remember {
+                ModelManagementViewModel(
+                    localModelStore = container.localModelStore,
+                    llmEngine = container.llmEngine,
+                    modelsDir = container.modelsDir,
+                    appContext = context.applicationContext as android.app.Application,
+                )
+            }
+            ModelManagementScreen(
+                viewModel = modelManagementViewModel,
+                onNavigateBack = { navController.popBackStack() },
             )
         }
     }
