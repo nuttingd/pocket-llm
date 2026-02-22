@@ -111,7 +111,7 @@ class LocalLlmClient(
             val tokenBuffer = StringBuilder()
             val progressJob = launch {
                 llmEngine.progress.collect { progress ->
-                    if (progress.tokenText.isNotEmpty()) {
+                    if (progress.tokenText.isNotEmpty() && progress.phase != "complete") {
                         // Emit each token as a streaming chunk
                         val chunk = ChatCompletionChunk(
                             id = "local",
