@@ -77,6 +77,9 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.01.00")
     implementation(composeBom)
 
+    // Local LLM module
+    implementation(project(":llm"))
+
     // Core Android
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-compose:1.12.3")
@@ -118,6 +121,12 @@ dependencies {
 
     // Image loading
     implementation("io.coil-kt.coil3:coil-compose:3.1.0")
+
+    // WorkManager (background model downloads)
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+
+    // OkHttp (model file downloads)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

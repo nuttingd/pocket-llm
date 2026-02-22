@@ -16,3 +16,6 @@ data class ServerEdit(val serverId: String? = null)
 
 @Serializable
 object Settings
+
+@Serializable
+object ModelManagement

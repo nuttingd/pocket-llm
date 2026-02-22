@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.ui.conversations
 
+import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.nutting.pocketllm.data.local.PocketLlmDatabase
@@ -16,8 +17,10 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class)
 class ConversationListViewModelTest {
 
     private lateinit var database: PocketLlmDatabase

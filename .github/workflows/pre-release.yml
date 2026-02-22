@@ -1,0 +1,73 @@
+name: Pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create a GitHub pre-release"
+        type: boolean
+        default: false
+
+concurrency:
+  group: pre-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Vulkan SDK
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk ninja-build
+          # Copy only Vulkan headers to isolated location to avoid glibc contamination during NDK cross-compile
+          sudo mkdir -p /opt/vulkan-headers
+          sudo cp -r /usr/include/vulkan /opt/vulkan-headers/
+          sudo cp -r /usr/include/vk_video /opt/vulkan-headers/
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set pre-release version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          PRE_VERSION="0.0.0-${BRANCH}.${SHORT_SHA}"
+          bash scripts/set-version.sh "0.0.0"
+          sed -i "s/versionName = .*/versionName = \"${PRE_VERSION}\"/" app/build.gradle.kts
+          echo "PRE_VERSION=${PRE_VERSION}" >> "$GITHUB_ENV"
+          echo "Pre-release version: ${PRE_VERSION}"
+
+      - run: ./gradlew :app:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocket-llm-${{ env.PRE_VERSION }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create GitHub pre-release
+        if: inputs.create_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="pre-release-${PRE_VERSION}"
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "Pre-release ${PRE_VERSION}" \
+            --notes "Pre-release build from branch \`${{ github.ref_name }}\` at commit \`$(git rev-parse --short HEAD)\`." \
+            --prerelease \
+            app/build/outputs/apk/debug/app-debug.apk#"pocket-llm-${PRE_VERSION}.apk"

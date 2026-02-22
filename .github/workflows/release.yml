@@ -16,11 +16,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+
+      - name: Install Vulkan SDK
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk ninja-build
+          # Copy only Vulkan headers to isolated location to avoid glibc contamination during NDK cross-compile
+          sudo mkdir -p /opt/vulkan-headers
+          sudo cp -r /usr/include/vulkan /opt/vulkan-headers/
+          sudo cp -r /usr/include/vk_video /opt/vulkan-headers/
 
       - uses: actions/setup-node@v4
         with:
