@@ -295,7 +295,7 @@ private fun DownloadedModelCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(model.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        "${model.parameterCount} / ${model.quantization} / ${model.modelSizeBytes / (1024 * 1024)}MB",
+                        "${model.parameterCount} / ${model.quantization} / ${model.totalSizeBytes / (1024 * 1024)}MB",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -334,8 +334,9 @@ private fun DownloadProgressCard(
             Text(model.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             if (model.downloadStatus == DownloadStatus.DOWNLOADING) {
-                val progress = if (model.modelSizeBytes > 0) {
-                    model.downloadedBytes.toFloat() / model.modelSizeBytes
+                val total = model.totalSizeBytes
+                val progress = if (total > 0) {
+                    model.downloadedBytes.toFloat() / total
                 } else 0f
                 LinearProgressIndicator(
                     progress = { progress },
@@ -343,7 +344,7 @@ private fun DownloadProgressCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "${model.downloadedBytes / (1024 * 1024)}MB / ${model.modelSizeBytes / (1024 * 1024)}MB",
+                    "${model.downloadedBytes / (1024 * 1024)}MB / ${total / (1024 * 1024)}MB",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 TextButton(onClick = onCancel) { Text("Cancel") }
@@ -377,7 +378,7 @@ private fun RegistryModelCard(
                     Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "${entry.parameterCount} / ${entry.quantization} / ${entry.modelSizeBytes / (1024 * 1024)}MB",
+                        "${entry.parameterCount} / ${entry.quantization} / ${entry.totalSizeBytes / (1024 * 1024)}MB",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     if (!meetsRam) {
