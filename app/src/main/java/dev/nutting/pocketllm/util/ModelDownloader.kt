@@ -15,12 +15,34 @@ class ModelDownloader {
 
     data class Progress(val bytesDownloaded: Long, val totalBytes: Long)
 
+    companion object {
+        private const val BUFFER_SIZE = 1_048_576 // 1 MB
+    }
+
     private val cancelled = AtomicBoolean(false)
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
+        .socketFactory(object : javax.net.SocketFactory() {
+            private val default = getDefault()
+            override fun createSocket() = (default.createSocket() as java.net.Socket).apply {
+                receiveBufferSize = BUFFER_SIZE
+            }
+            override fun createSocket(host: String, port: Int) = (default.createSocket(host, port) as java.net.Socket).apply {
+                receiveBufferSize = BUFFER_SIZE
+            }
+            override fun createSocket(host: String, port: Int, localHost: java.net.InetAddress, localPort: Int) = (default.createSocket(host, port, localHost, localPort) as java.net.Socket).apply {
+                receiveBufferSize = BUFFER_SIZE
+            }
+            override fun createSocket(host: java.net.InetAddress, port: Int) = (default.createSocket(host, port) as java.net.Socket).apply {
+                receiveBufferSize = BUFFER_SIZE
+            }
+            override fun createSocket(host: java.net.InetAddress, port: Int, localHost: java.net.InetAddress, localPort: Int) = (default.createSocket(host, port, localHost, localPort) as java.net.Socket).apply {
+                receiveBufferSize = BUFFER_SIZE
+            }
+        })
         .build()
 
     fun download(url: String, destinationFile: File): Flow<Progress> = flow {
@@ -56,7 +78,7 @@ class ModelDownloader {
             existingBytes = 0
         }
 
-        val buffer = ByteArray(128 * 1024) // 128 KB buffer
+        val buffer = ByteArray(BUFFER_SIZE)
         var downloaded = existingBytes
         var lastEmitTime = System.currentTimeMillis()
 
