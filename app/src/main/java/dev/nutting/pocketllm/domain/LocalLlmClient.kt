@@ -7,9 +7,11 @@ import dev.nutting.pocketllm.data.remote.model.ChatCompletionChunk
 import dev.nutting.pocketllm.data.remote.model.ChatContent
 import dev.nutting.pocketllm.data.remote.model.ChatMessage
 import dev.nutting.pocketllm.llm.LlmEngine
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -97,9 +99,9 @@ class LocalLlmClient(
         }.toString()
 
         // Collect streaming progress from the engine
-        val collectorJob = kotlinx.coroutines.coroutineScope {
+        val collectorJob = coroutineScope {
             val tokenBuffer = StringBuilder()
-            val progressJob = kotlinx.coroutines.launch {
+            val progressJob = launch {
                 llmEngine.progress.collect { progress ->
                     if (progress.tokenText.isNotEmpty()) {
                         // Emit each token as a streaming chunk
