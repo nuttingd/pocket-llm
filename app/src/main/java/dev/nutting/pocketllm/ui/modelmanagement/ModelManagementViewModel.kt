@@ -114,7 +114,7 @@ class ModelManagementViewModel(
         // Check available storage
         val stat = StatFs(modelsDir.absolutePath)
         val availableBytes = stat.availableBytes
-        val requiredBytes = entry.modelSizeBytes + 100_000_000L // 100 MB buffer
+        val requiredBytes = entry.totalSizeBytes + 100_000_000L // 100 MB buffer
         if (availableBytes < requiredBytes) {
             _uiState.update { it.copy(errorMessage = "Not enough storage. Need ${requiredBytes / (1024 * 1024)}MB, have ${availableBytes / (1024 * 1024)}MB.") }
             return
@@ -150,9 +150,13 @@ class ModelManagementViewModel(
                 parameterCount = entry.parameterCount,
                 quantization = entry.quantization,
                 modelFileName = entry.modelFileName,
+                projectorFileName = entry.projectorFileName ?: "",
                 modelSizeBytes = entry.modelSizeBytes,
+                projectorSizeBytes = entry.projectorSizeBytes,
                 downloadStatus = DownloadStatus.DOWNLOADING,
                 sourceUrl = entry.modelDownloadUrl,
+                projectorSourceUrl = entry.projectorDownloadUrl,
+                minimumRamMb = entry.minimumRamMb,
             )
             localModelStore.save(model)
 
@@ -162,7 +166,10 @@ class ModelManagementViewModel(
                     ModelDownloadWorker.KEY_MODEL_ID to entry.id,
                     ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
                     ModelDownloadWorker.KEY_MODEL_FILENAME to entry.modelFileName,
-                    ModelDownloadWorker.KEY_TOTAL_SIZE to entry.modelSizeBytes,
+                    ModelDownloadWorker.KEY_TOTAL_SIZE to entry.totalSizeBytes,
+                    ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
+                    ModelDownloadWorker.KEY_PROJECTOR_FILENAME to entry.projectorFileName,
+                    ModelDownloadWorker.KEY_PROJECTOR_SIZE to entry.projectorSizeBytes,
                 ))
                 .build()
 
@@ -190,8 +197,10 @@ class ModelManagementViewModel(
         viewModelScope.launch {
             val model = localModelStore.getById(modelId)
             if (model != null) {
-                val file = File(modelsDir, model.modelFileName)
-                if (file.exists()) file.delete()
+                File(modelsDir, model.modelFileName).let { if (it.exists()) it.delete() }
+                if (model.projectorFileName.isNotEmpty()) {
+                    File(modelsDir, model.projectorFileName).let { if (it.exists()) it.delete() }
+                }
             }
             localModelStore.delete(modelId)
         }
@@ -201,8 +210,10 @@ class ModelManagementViewModel(
         viewModelScope.launch {
             val model = localModelStore.getById(modelId)
             if (model != null) {
-                val file = File(modelsDir, model.modelFileName)
-                if (file.exists()) file.delete()
+                File(modelsDir, model.modelFileName).let { if (it.exists()) it.delete() }
+                if (model.projectorFileName.isNotEmpty()) {
+                    File(modelsDir, model.projectorFileName).let { if (it.exists()) it.delete() }
+                }
             }
             localModelStore.delete(modelId)
         }
