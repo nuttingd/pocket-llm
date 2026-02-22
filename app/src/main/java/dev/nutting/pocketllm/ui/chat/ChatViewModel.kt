@@ -91,15 +91,36 @@ class ChatViewModel(
             loadConversationParams(conversationId)
             viewModelScope.launch {
                 val conversation = conversationRepository.getById(conversationId).first()
-                loadServerAndModels(
-                    preferredServerId = conversation?.lastServerProfileId,
-                    preferredModelId = conversation?.lastModelId,
-                )
+                if (conversation?.lastServerProfileId == LocalLlmClient.LOCAL_SERVER_ID) {
+                    // Restore local model state
+                    val modelId = conversation.lastModelId
+                    val localModels = _uiState.value.localModels
+                    if (modelId != null && localModels.any { it.id == modelId }) {
+                        switchToLocal(modelId)
+                    } else {
+                        // Local model no longer available, fall back to remote
+                        loadServerAndModels()
+                    }
+                } else {
+                    loadServerAndModels(
+                        preferredServerId = conversation?.lastServerProfileId,
+                        preferredModelId = conversation?.lastModelId,
+                    )
+                }
             }
         } else {
             isFirstMessage = true
             _uiState.update { it.copy(conversationParams = ConversationParameters()) }
-            loadServerAndModels()
+            // Check if there's an active local model to use by default
+            viewModelScope.launch {
+                val activeId = localModelStore?.activeModelId?.first()
+                val localModels = _uiState.value.localModels
+                if (activeId != null && localModels.any { it.id == activeId }) {
+                    switchToLocal(activeId)
+                } else {
+                    loadServerAndModels()
+                }
+            }
         }
     }
 
@@ -517,14 +538,19 @@ class ChatViewModel(
     }
 
     fun switchModel(modelId: String) {
-        _uiState.update { it.copy(selectedModelId = modelId) }
-        persistServerAndModel()
+        val localModels = _uiState.value.localModels
+        if (localModels.any { it.id == modelId }) {
+            switchToLocal(modelId)
+        } else {
+            _uiState.update { it.copy(selectedModelId = modelId) }
+            persistServerAndModel()
+        }
     }
 
     private fun persistServerAndModel() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
-        val serverId = state.selectedServer?.id
+        val serverId = if (state.useLocalModel) LocalLlmClient.LOCAL_SERVER_ID else state.selectedServer?.id
         val modelId = state.selectedModelId
         viewModelScope.launch {
             conversationRepository.updateServerAndModel(conversationId, serverId, modelId)
