@@ -91,16 +91,11 @@ class ChatViewModel(
             loadConversationParams(conversationId)
             viewModelScope.launch {
                 val conversation = conversationRepository.getById(conversationId).first()
-                if (conversation?.lastServerProfileId == LocalLlmClient.LOCAL_SERVER_ID) {
+                val modelId = conversation?.lastModelId
+                val localModels = _uiState.value.localModels
+                if (conversation?.lastServerProfileId == null && modelId != null && localModels.any { it.id == modelId }) {
                     // Restore local model state
-                    val modelId = conversation.lastModelId
-                    val localModels = _uiState.value.localModels
-                    if (modelId != null && localModels.any { it.id == modelId }) {
-                        switchToLocal(modelId)
-                    } else {
-                        // Local model no longer available, fall back to remote
-                        loadServerAndModels()
-                    }
+                    switchToLocal(modelId)
                 } else {
                     loadServerAndModels(
                         preferredServerId = conversation?.lastServerProfileId,
@@ -438,7 +433,7 @@ class ChatViewModel(
                     ConversationEntity(
                         id = conversationId,
                         title = title,
-                        lastServerProfileId = serverId,
+                        lastServerProfileId = if (isLocal) null else serverId,
                         lastModelId = modelId,
                         createdAt = now,
                         updatedAt = now,
@@ -550,7 +545,7 @@ class ChatViewModel(
     private fun persistServerAndModel() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
-        val serverId = if (state.useLocalModel) LocalLlmClient.LOCAL_SERVER_ID else state.selectedServer?.id
+        val serverId = if (state.useLocalModel) null else state.selectedServer?.id
         val modelId = state.selectedModelId
         viewModelScope.launch {
             conversationRepository.updateServerAndModel(conversationId, serverId, modelId)

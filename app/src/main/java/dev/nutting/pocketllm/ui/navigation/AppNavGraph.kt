@@ -78,7 +78,6 @@ fun AppNavGraph(
                 conversationListViewModel = conversationListViewModel,
                 onNavigateToServers = { navController.navigate(ServerConfig) },
                 onNavigateToSettings = { navController.navigate(Settings) },
-                onNavigateToModels = { navController.navigate(ModelManagement) },
                 onNavigateToSetup = { navController.navigate(Setup) },
                 onConversationSelected = { id ->
                     if (id != null) {
@@ -114,7 +113,6 @@ fun AppNavGraph(
                 conversationListViewModel = conversationListViewModel,
                 onNavigateToServers = { navController.navigate(ServerConfig) },
                 onNavigateToSettings = { navController.navigate(Settings) },
-                onNavigateToModels = { navController.navigate(ModelManagement) },
                 onNavigateToSetup = { navController.navigate(Setup) },
                 onConversationSelected = { id ->
                     if (id != null) {

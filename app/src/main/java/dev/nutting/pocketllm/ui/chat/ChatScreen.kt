@@ -70,7 +70,6 @@ fun ChatScreen(
     conversationListViewModel: ConversationListViewModel,
     onNavigateToServers: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToModels: () -> Unit = {},
     onNavigateToSetup: () -> Unit = {},
     onConversationSelected: (String?) -> Unit,
     conversationId: String?,
@@ -195,7 +194,6 @@ fun ChatScreen(
                         }
                         ChatOverflowMenu(
                             onNavigateToSettings = onNavigateToSettings,
-                            onNavigateToModels = onNavigateToModels,
                             onCompact = viewModel::compactConversation,
                             onSaveToFile = {
                                 val title = state.conversationTitle.replace(Regex("[^a-zA-Z0-9 ]"), "").take(40)
@@ -350,7 +348,6 @@ private fun ChatContent(
 @Composable
 private fun ChatOverflowMenu(
     onNavigateToSettings: () -> Unit,
-    onNavigateToModels: () -> Unit = {},
     onCompact: () -> Unit,
     onSaveToFile: () -> Unit = {},
     onShare: () -> Unit = {},
@@ -384,13 +381,6 @@ private fun ChatOverflowMenu(
                 onClick = {
                     expanded = false
                     onCompact()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Local Models") },
-                onClick = {
-                    expanded = false
-                    onNavigateToModels()
                 },
             )
             DropdownMenuItem(
