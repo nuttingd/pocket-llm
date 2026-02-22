@@ -60,8 +60,16 @@ class LocalLlmClient(
         }
 
         val modelPath = File(modelsDir, model.modelFileName).absolutePath
-        Log.i(TAG, "Loading local model: $modelPath (GPU: $gpuPercent%)")
-        llmEngine.loadModel(modelPath, gpuOffloadPercent = gpuPercent)
+        val projectorPath = if (model.projectorFileName.isNotEmpty()) {
+            File(modelsDir, model.projectorFileName).absolutePath
+        } else ""
+        Log.i(TAG, "Loading local model: $modelPath (GPU: $gpuPercent%, ctx: ${model.contextWindowSize})")
+        llmEngine.loadModel(
+            modelPath,
+            projectorPath = projectorPath,
+            gpuOffloadPercent = gpuPercent,
+            contextSize = model.contextWindowSize,
+        )
         loadedModelId = modelId
         loadedGpuPercent = gpuPercent
     }
