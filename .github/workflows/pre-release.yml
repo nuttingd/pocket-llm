@@ -28,6 +28,13 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Install Vulkan C++ headers
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq vulkan-headers
+          sudo mkdir -p /opt/vulkan-headers
+          sudo ln -sf /usr/include/vulkan /opt/vulkan-headers/vulkan
+
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Set pre-release version
