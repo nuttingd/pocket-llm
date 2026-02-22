@@ -19,3 +19,6 @@ object Settings
 
 @Serializable
 object ModelManagement
+
+@Serializable
+object Setup

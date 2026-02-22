@@ -71,6 +71,7 @@ fun ChatScreen(
     onNavigateToServers: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToModels: () -> Unit = {},
+    onNavigateToSetup: () -> Unit = {},
     onConversationSelected: (String?) -> Unit,
     conversationId: String?,
 ) {
@@ -92,10 +93,10 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Redirect to server config on first launch when no servers are configured and no local models
+    // Redirect to setup on first launch when no servers are configured and no local models
     LaunchedEffect(state.serversLoaded, state.availableServers.size, state.localModels.size) {
         if (state.serversLoaded && state.availableServers.isEmpty() && state.localModels.isEmpty()) {
-            onNavigateToServers()
+            onNavigateToSetup()
         }
     }
 
