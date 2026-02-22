@@ -246,6 +246,27 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
 
 // ---- Chat Inference ----
 
+// Return the number of leading bytes that form complete UTF-8 characters.
+// Any trailing incomplete multi-byte sequence is excluded.
+static size_t utf8_complete_length(const char *s, size_t len) {
+    if (len == 0) return 0;
+    // Walk backwards past continuation bytes (10xxxxxx)
+    size_t i = len;
+    while (i > 0 && (static_cast<unsigned char>(s[i - 1]) & 0xC0) == 0x80) {
+        --i;
+    }
+    if (i == 0) return 0; // all continuation bytes — incomplete
+    unsigned char lead = static_cast<unsigned char>(s[i - 1]);
+    int expected;
+    if ((lead & 0x80) == 0)        expected = 1;
+    else if ((lead & 0xE0) == 0xC0) expected = 2;
+    else if ((lead & 0xF0) == 0xE0) expected = 3;
+    else if ((lead & 0xF8) == 0xF0) expected = 4;
+    else return i - 1; // invalid lead byte — skip it
+    int actual = static_cast<int>(len - (i - 1));
+    return actual >= expected ? len : i - 1;
+}
+
 static void report_progress(JNIEnv *env, jobject thiz, jmethodID mid, const char *phase, int tokens, const char *text = "") {
     jstring jPhase = env->NewStringUTF(phase);
     jstring jText = env->NewStringUTF(text);
@@ -407,6 +428,7 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
 
     common_sampler *sampler = common_sampler_init(g_model, sparams);
     std::ostringstream out;
+    std::string utf8_buf; // Buffer for incomplete multi-byte UTF-8 sequences
     auto t_start = std::chrono::steady_clock::now();
 
     llama_batch batch = llama_batch_init(1, 0, 1);
@@ -427,13 +449,21 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
         std::string piece = common_token_to_piece(g_context, new_token);
         out << piece;
 
-        // Report every token for streaming UI
+        // Buffer token bytes and only send complete UTF-8 to JNI
+        utf8_buf += piece;
+        size_t complete = utf8_complete_length(utf8_buf.c_str(), utf8_buf.size());
+
         auto now = std::chrono::steady_clock::now();
         double elapsed_s = std::chrono::duration<double>(now - t_start).count();
         double tok_per_s = elapsed_s > 0 ? (i + 1) / elapsed_s : 0;
         char phase_buf[64];
         snprintf(phase_buf, sizeof(phase_buf), "generating:%.1f", tok_per_s);
-        report_progress(env, thiz, progressMid, phase_buf, i + 1, piece.c_str());
+
+        if (complete > 0) {
+            std::string to_send = utf8_buf.substr(0, complete);
+            utf8_buf.erase(0, complete);
+            report_progress(env, thiz, progressMid, phase_buf, i + 1, to_send.c_str());
+        }
 
         common_batch_clear(batch);
         common_batch_add(batch, new_token, n_past++, {0}, true);
@@ -452,6 +482,12 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
     g_in_guarded_section = false;
 
     std::string result = out.str();
+    // Trim any trailing incomplete UTF-8 sequence before passing to JNI
+    size_t safe_len = utf8_complete_length(result.c_str(), result.size());
+    if (safe_len < result.size()) {
+        LOGw("Trimming %zu trailing incomplete UTF-8 bytes from result", result.size() - safe_len);
+        result.resize(safe_len);
+    }
     LOGi("Chat inference generated %zu chars", result.size());
     return env->NewStringUTF(result.c_str());
 }
