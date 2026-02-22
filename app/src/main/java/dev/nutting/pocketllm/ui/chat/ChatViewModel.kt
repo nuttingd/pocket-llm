@@ -81,7 +81,6 @@ class ChatViewModel(
         loadPresets()
         observeFontSize()
         observeLocalModels()
-        observeInferenceProvider()
         chatManager.toolApprovalCallback = { toolCalls ->
             val deferred = CompletableDeferred<Boolean>()
             toolApprovalDeferred = deferred
@@ -98,15 +97,46 @@ class ChatViewModel(
             loadConversationParams(conversationId)
             viewModelScope.launch {
                 val conversation = conversationRepository.getById(conversationId).first()
-                loadServerAndModels(
-                    preferredServerId = conversation?.lastServerProfileId,
-                    preferredModelId = conversation?.lastModelId,
-                )
+                val preferredModelId = conversation?.lastModelId
+                val preferredServerId = conversation?.lastServerProfileId
+                val localModel = preferredModelId?.let { localModelStore?.getById(it) }
+                if (localModel != null && localModel.downloadStatus == DownloadStatus.COMPLETE) {
+                    _uiState.update {
+                        it.copy(
+                            isUsingLocalInference = true,
+                            selectedModelId = preferredModelId,
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isUsingLocalInference = false) }
+                    loadServerAndModels(
+                        preferredServerId = preferredServerId,
+                        preferredModelId = preferredModelId,
+                    )
+                }
             }
         } else {
             isFirstMessage = true
             _uiState.update { it.copy(conversationParams = ConversationParameters()) }
-            loadServerAndModels()
+            viewModelScope.launch {
+                val providerType = settingsDataStore?.getInferenceProviderType()?.first() ?: "remote"
+                if (providerType == "local") {
+                    val activeModelId = settingsDataStore?.getActiveLocalModelId()?.first() ?: ""
+                    if (activeModelId.isNotBlank()) {
+                        _uiState.update {
+                            it.copy(
+                                isUsingLocalInference = true,
+                                selectedModelId = activeModelId,
+                            )
+                        }
+                    } else {
+                        loadServerAndModels()
+                    }
+                } else {
+                    _uiState.update { it.copy(isUsingLocalInference = false) }
+                    loadServerAndModels()
+                }
+            }
         }
     }
 
@@ -130,15 +160,6 @@ class ChatViewModel(
                     )
                 }
                 _uiState.update { it.copy(localModels = modelInfos) }
-            }
-        }
-    }
-
-    private fun observeInferenceProvider() {
-        if (settingsDataStore == null) return
-        viewModelScope.launch {
-            settingsDataStore.getInferenceProviderType().collect { providerType ->
-                _uiState.update { it.copy(isUsingLocalInference = providerType == "local") }
             }
         }
     }
@@ -356,14 +377,13 @@ class ChatViewModel(
     }
 
     private suspend fun resolveLocalProvider(): InferenceProvider? {
-        if (settingsDataStore == null || llmEngine == null || localModelStore == null || modelsDir == null) return null
-        val providerType = settingsDataStore.getInferenceProviderType().first()
-        if (providerType != "local") return null
-        val modelId = settingsDataStore.getActiveLocalModelId().first()
-        if (modelId.isBlank()) return null
+        if (llmEngine == null || localModelStore == null || modelsDir == null) return null
+        val state = _uiState.value
+        if (!state.isUsingLocalInference) return null
+        val modelId = state.selectedModelId ?: return null
         val model = localModelStore.getById(modelId) ?: return null
         if (model.downloadStatus != DownloadStatus.COMPLETE) return null
-        val gpuPercent = settingsDataStore.getGpuOffloadPercent().first()
+        val gpuPercent = settingsDataStore?.getGpuOffloadPercent()?.first() ?: 0
         return LocalInferenceProvider(
             llmEngine = llmEngine,
             localModel = model,
@@ -439,7 +459,7 @@ class ChatViewModel(
                         id = conversationId,
                         title = title,
                         lastServerProfileId = server?.id,
-                        lastModelId = if (localProvider != null) "local" else modelId,
+                        lastModelId = if (localProvider != null) state.selectedModelId else modelId,
                         createdAt = now,
                         updatedAt = now,
                     )
@@ -461,7 +481,7 @@ class ChatViewModel(
                 conversationId = conversationId,
                 content = content,
                 serverId = server?.id ?: "",
-                modelId = if (localProvider != null) "local" else modelId ?: "",
+                modelId = if (localProvider != null) state.selectedModelId ?: "" else modelId ?: "",
                 systemPrompt = resolved.systemPrompt,
                 temperature = resolved.temperature,
                 maxTokens = resolved.maxTokens,
@@ -540,14 +560,20 @@ class ChatViewModel(
     }
 
     fun switchModel(modelId: String) {
-        _uiState.update { it.copy(selectedModelId = modelId) }
+        val isLocal = _uiState.value.localModels.any { it.id == modelId }
+        _uiState.update {
+            it.copy(
+                selectedModelId = modelId,
+                isUsingLocalInference = isLocal,
+            )
+        }
         persistServerAndModel()
     }
 
     private fun persistServerAndModel() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
-        val serverId = state.selectedServer?.id
+        val serverId = if (state.isUsingLocalInference) null else state.selectedServer?.id
         val modelId = state.selectedModelId
         viewModelScope.launch {
             conversationRepository.updateServerAndModel(conversationId, serverId, modelId)
