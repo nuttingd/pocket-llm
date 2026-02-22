@@ -12,7 +12,6 @@ data class ServerConfigUiState(
     val isTesting: Boolean = false,
     val testResult: String? = null,
     val error: String? = null,
-    val isFirstLaunch: Boolean = false,
 )
 
 data class EditingServer(
