@@ -23,10 +23,9 @@ jobs:
 
       - name: Install Vulkan C++ headers
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -yq vulkan-headers
+          git clone --depth=1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
           sudo mkdir -p /opt/vulkan-headers
-          sudo ln -sf /usr/include/vulkan /opt/vulkan-headers/vulkan
+          sudo cp -r /tmp/vulkan-headers/include/* /opt/vulkan-headers/
 
       - uses: gradle/actions/setup-gradle@v4
 
