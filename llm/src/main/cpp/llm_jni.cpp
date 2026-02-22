@@ -13,6 +13,8 @@
 #include "gguf.h"
 #include "common.h"
 #include "sampling.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 #include <nlohmann/json.hpp>
 
@@ -29,6 +31,7 @@ constexpr int BATCH_SIZE = 512;
 
 static llama_model   *g_model   = nullptr;
 static llama_context *g_context = nullptr;
+static mtmd_context  *g_mtmd    = nullptr;
 static std::atomic<bool> g_cancel(false);
 static std::mutex g_engine_mutex;
 
@@ -73,6 +76,7 @@ static void poison_native_state() {
     g_poisoned.store(true);
     g_model   = nullptr;
     g_context = nullptr;
+    g_mtmd    = nullptr;
     LOGe("Native state poisoned after crash — model must be reloaded");
 }
 
@@ -141,7 +145,7 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     JNIEnv *env, jobject,
-    jstring jModelPath, jint nThreads, jint gpuOffloadPercent, jint contextSize
+    jstring jModelPath, jstring jProjectorPath, jint nThreads, jint gpuOffloadPercent, jint contextSize
 ) {
     if (g_poisoned.load()) {
         LOGe("nativeLoadModel called while native state is poisoned");
@@ -151,9 +155,11 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
     const auto *model_path = env->GetStringUTFChars(jModelPath, nullptr);
+    const auto *proj_path  = env->GetStringUTFChars(jProjectorPath, nullptr);
     LOGi("Loading model: %s", model_path);
+    LOGi("Loading projector: %s", proj_path);
 
-    // Load model — offload layers to GPU based on percentage setting
+    // Load text model — offload layers to GPU based on percentage setting
     llama_model_params model_params = llama_model_default_params();
     int n_gpu_layers = -1;
     {
@@ -181,13 +187,14 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     if (!model) {
         LOGe("Failed to load model from %s", model_path);
         env->ReleaseStringUTFChars(jModelPath, model_path);
+        env->ReleaseStringUTFChars(jProjectorPath, proj_path);
         return 1;
     }
     g_model = model;
 
-    // Create context
+    // Create context with user-configurable context size
     int threads = nThreads > 0 ? nThreads : get_n_threads();
-    int ctx_size = contextSize > 0 ? contextSize : 4096;
+    int ctx_size = contextSize > 0 ? contextSize : 2048;
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = ctx_size;
     ctx_params.n_batch = BATCH_SIZE;
@@ -202,10 +209,37 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
         llama_model_free(g_model);
         g_model = nullptr;
         env->ReleaseStringUTFChars(jModelPath, model_path);
+        env->ReleaseStringUTFChars(jProjectorPath, proj_path);
         return 2;
     }
 
+    // Init multimodal context (only if projector path is provided)
+    if (proj_path && strlen(proj_path) > 0) {
+        mtmd_context_params mtmd_params = mtmd_context_params_default();
+        mtmd_params.n_threads = threads;
+        mtmd_params.use_gpu = true;
+        mtmd_params.warmup = true;
+        mtmd_params.image_max_tokens = 512;
+
+        g_mtmd = mtmd_init_from_file(proj_path, g_model, mtmd_params);
+        if (!g_mtmd) {
+            LOGe("Failed to init mtmd from %s", proj_path);
+            llama_free(g_context);
+            g_context = nullptr;
+            llama_model_free(g_model);
+            g_model = nullptr;
+            env->ReleaseStringUTFChars(jModelPath, model_path);
+            env->ReleaseStringUTFChars(jProjectorPath, proj_path);
+            return 3;
+        }
+        LOGi("Multimodal projector loaded");
+    } else {
+        g_mtmd = nullptr;
+        LOGi("No projector — text-only mode");
+    }
+
     env->ReleaseStringUTFChars(jModelPath, model_path);
+    env->ReleaseStringUTFChars(jProjectorPath, proj_path);
     LOGi("Model loaded successfully (threads=%d, ctx=%d)", threads, ctx_size);
     return 0;
 }
@@ -443,6 +477,10 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeUnload(JNIEnv *, jobject) {
 
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
+    if (g_mtmd) {
+        mtmd_free(g_mtmd);
+        g_mtmd = nullptr;
+    }
     if (g_context) {
         llama_free(g_context);
         g_context = nullptr;

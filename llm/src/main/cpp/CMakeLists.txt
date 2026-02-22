@@ -25,8 +25,8 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-# Disable tools build — we only need core llama + common
-set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+# Enable tools build (required for mtmd multimodal support)
+set(LLAMA_BUILD_TOOLS ON CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 # Enable Vulkan GPU backend
@@ -61,10 +61,12 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
         ${LLAMA_SRC}/common
         ${LLAMA_SRC}/include
         ${LLAMA_SRC}/ggml/include
-        ${LLAMA_SRC}/ggml/src)
+        ${LLAMA_SRC}/ggml/src
+        ${LLAMA_SRC}/tools/mtmd)
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         llama
         common
+        mtmd
         android
         log)
