@@ -147,7 +147,6 @@ class ModelManagementViewModel(
             val model = LocalModel(
                 id = entry.id,
                 name = entry.name,
-                description = entry.description,
                 parameterCount = entry.parameterCount,
                 quantization = entry.quantization,
                 modelFileName = entry.modelFileName,
