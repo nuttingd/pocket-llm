@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.AssistChip
@@ -31,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -69,15 +67,13 @@ fun ServerConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (state.isFirstLaunch) "Welcome to Pocket LLM" else "Server Configuration") },
+                title = { Text("Manage Servers") },
                 navigationIcon = {
-                    if (!state.isFirstLaunch) {
-                        IconButton(
-                            onClick = onNavigateBack,
-                            modifier = Modifier.semantics { contentDescription = "Navigate back" },
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                        }
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.semantics { contentDescription = "Navigate back" },
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                     }
                 },
             )
@@ -100,20 +96,6 @@ fun ServerConfigScreen(
                 .padding(padding)
                 .padding(16.dp),
         ) {
-            if (state.isFirstLaunch && state.servers.isEmpty() && state.editingServer == null) {
-                Text(
-                    "Configure your first LLM server to get started.",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = { viewModel.startAddServer() },
-                    modifier = Modifier.semantics { contentDescription = "Add your first server" },
-                ) {
-                    Text("Add Server")
-                }
-            }
-
             if (state.editingServer != null) {
                 ServerEditForm(
                     editing = state.editingServer!!,

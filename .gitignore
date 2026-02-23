@@ -9,7 +9,10 @@
 .externalNativeBuild
 .cxx
 /app/build
+/llm/build
+/llm/.cxx
 keystore.properties
 *.jks
 *.keystore
 node_modules/
+gradle/gradle-daemon-jvm.properties

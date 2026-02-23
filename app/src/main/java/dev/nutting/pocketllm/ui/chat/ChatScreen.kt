@@ -70,7 +70,7 @@ fun ChatScreen(
     conversationListViewModel: ConversationListViewModel,
     onNavigateToServers: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToModels: () -> Unit = {},
+    onNavigateToSetup: () -> Unit = {},
     onConversationSelected: (String?) -> Unit,
     conversationId: String?,
 ) {
@@ -92,19 +92,22 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Redirect to server config on first launch when no servers are configured and no local models
+    // Redirect to setup on first launch when no servers are configured and no local models
     LaunchedEffect(state.serversLoaded, state.availableServers.size, state.localModels.size) {
         if (state.serversLoaded && state.availableServers.isEmpty() && state.localModels.isEmpty()) {
-            onNavigateToServers()
+            onNavigateToSetup()
         }
     }
 
-    // Scroll to new messages. During streaming, scroll once to anchor the
-    // streaming bubble at the top of the viewport, then leave scrolling to the user.
-    LaunchedEffect(state.messages.size, state.isStreaming) {
-        val totalItems = listState.layoutInfo.totalItemsCount
-        if (totalItems > 0) {
-            listState.animateScrollToItem(totalItems - 1)
+    // Scroll to bottom on discrete events (new messages, streaming/compacting state changes).
+    LaunchedEffect(state.messages.size, state.isStreaming, state.isCompacting) {
+        listState.animateScrollToItem(0)
+    }
+    // Keep pinned to bottom while streaming content grows (instant scroll, no animation fighting).
+    val streamingContentLength = state.currentStreamingContent.length
+    LaunchedEffect(streamingContentLength) {
+        if (state.isStreaming && streamingContentLength > 0) {
+            listState.scrollToItem(0)
         }
     }
 
@@ -194,7 +197,6 @@ fun ChatScreen(
                         }
                         ChatOverflowMenu(
                             onNavigateToSettings = onNavigateToSettings,
-                            onNavigateToModels = onNavigateToModels,
                             onCompact = viewModel::compactConversation,
                             onSaveToFile = {
                                 val title = state.conversationTitle.replace(Regex("[^a-zA-Z0-9 ]"), "").take(40)
@@ -306,32 +308,24 @@ private fun ChatContent(
             )
         }
     } else {
-        val compactionBeforeMessage = state.compactionSummaries.associateBy { it.insertedBeforeMessageId }
+        // Hide compacted messages and show compaction indicator
+        val latestCompaction = state.compactionSummaries.maxByOrNull { it.createdAt }
+        val compactedCount = latestCompaction?.compactedMessageCount ?: 0
+        val hasCompaction = latestCompaction != null && compactedCount > 0 && compactedCount < state.messages.size
+        val compactedMessages = if (hasCompaction) state.messages.take(compactedCount) else emptyList()
+        val visibleMessages = if (hasCompaction) state.messages.drop(compactedCount) else state.messages
+        var showCompactedMessages by remember { mutableStateOf(false) }
 
         LazyColumn(
             state = listState,
+            reverseLayout = true,
             modifier = modifier.fillMaxSize(),
         ) {
-            items(state.messages, key = { it.id }) { message ->
-                compactionBeforeMessage[message.id]?.let { summary ->
-                    CompactionIndicator(summary = summary)
-                }
-                MessageBubble(
-                    message = message,
-                    fontSizeSp = state.messageFontSizeSp,
-                    onCopy = onCopy,
-                    onRegenerate = onRegenerate,
-                    onEdit = onEdit,
-                    onDelete = onDelete,
-                )
-            }
-            if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
-                item(key = "streaming") {
-                    StreamingMessageBubble(content = state.currentStreamingContent)
-                }
-            }
+            // With reverseLayout, index 0 is at the bottom of the screen.
+            // Items are laid out bottom-to-top, so we add newest content first.
+
             if (state.pendingToolCalls.isNotEmpty()) {
-                items(state.pendingToolCalls, key = { it.id }) { toolCall ->
+                items(state.pendingToolCalls.reversed(), key = { it.id }) { toolCall ->
                     ToolCallCard(
                         toolCall = toolCall,
                         status = state.toolCallResults[toolCall.id]?.let {
@@ -342,6 +336,50 @@ private fun ChatContent(
                     )
                 }
             }
+            if (state.isCompacting) {
+                item(key = "compacting") {
+                    CompactingIndicator()
+                }
+            }
+            if (state.isStreaming) {
+                if (state.currentStreamingContent.isNotEmpty()) {
+                    item(key = "streaming") {
+                        StreamingMessageBubble(content = state.currentStreamingContent)
+                    }
+                } else if (!state.isCompacting) {
+                    item(key = "typing") {
+                        TypingIndicator()
+                    }
+                }
+            }
+            items(visibleMessages.reversed(), key = { it.id }) { message ->
+                MessageBubble(
+                    message = message,
+                    fontSizeSp = state.messageFontSizeSp,
+                    onCopy = onCopy,
+                    onRegenerate = onRegenerate,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
+                )
+            }
+            if (hasCompaction) {
+                item(key = "compaction-indicator") {
+                    CompactionIndicator(
+                        summary = latestCompaction!!,
+                        showingCompactedMessages = showCompactedMessages,
+                        onToggleCompactedMessages = { showCompactedMessages = !showCompactedMessages },
+                    )
+                }
+                if (showCompactedMessages) {
+                    items(compactedMessages.reversed(), key = { "compacted-${it.id}" }) { message ->
+                        MessageBubble(
+                            message = message,
+                            fontSizeSp = state.messageFontSizeSp,
+                            onCopy = onCopy,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -349,7 +387,6 @@ private fun ChatContent(
 @Composable
 private fun ChatOverflowMenu(
     onNavigateToSettings: () -> Unit,
-    onNavigateToModels: () -> Unit = {},
     onCompact: () -> Unit,
     onSaveToFile: () -> Unit = {},
     onShare: () -> Unit = {},
@@ -383,13 +420,6 @@ private fun ChatOverflowMenu(
                 onClick = {
                     expanded = false
                     onCompact()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Local Models") },
-                onClick = {
-                    expanded = false
-                    onNavigateToModels()
                 },
             )
             DropdownMenuItem(

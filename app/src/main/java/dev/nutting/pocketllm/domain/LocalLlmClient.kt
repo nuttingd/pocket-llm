@@ -1,18 +1,15 @@
 package dev.nutting.pocketllm.domain
 
 import android.util.Log
-import dev.nutting.pocketllm.data.local.model.LocalModel
 import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.data.remote.model.ChatCompletionChunk
 import dev.nutting.pocketllm.data.remote.model.ChatContent
 import dev.nutting.pocketllm.data.remote.model.ChatMessage
 import dev.nutting.pocketllm.llm.LlmEngine
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -60,8 +57,16 @@ class LocalLlmClient(
         }
 
         val modelPath = File(modelsDir, model.modelFileName).absolutePath
-        Log.i(TAG, "Loading local model: $modelPath (GPU: $gpuPercent%)")
-        llmEngine.loadModel(modelPath, gpuOffloadPercent = gpuPercent)
+        val projectorPath = if (model.projectorFileName.isNotEmpty()) {
+            File(modelsDir, model.projectorFileName).absolutePath
+        } else ""
+        Log.i(TAG, "Loading local model: $modelPath (GPU: $gpuPercent%, ctx: ${model.contextWindowSize})")
+        llmEngine.loadModel(
+            modelPath,
+            projectorPath = projectorPath,
+            gpuOffloadPercent = gpuPercent,
+            contextSize = model.contextWindowSize,
+        )
         loadedModelId = modelId
         loadedGpuPercent = gpuPercent
     }
@@ -70,18 +75,8 @@ class LocalLlmClient(
         return if (llmEngine.isReady()) llmEngine.modelName() else null
     }
 
-    /**
-     * Stream chat completions from the local LLM, producing ChatCompletionChunk
-     * events in the same format as the OpenAI streaming API.
-     */
-    fun streamChatCompletion(
-        messages: List<ChatMessage>,
-        temperature: Float?,
-        maxTokens: Int?,
-        topP: Float?,
-    ): Flow<ChatCompletionChunk> = flow {
-        // Convert ChatMessages to JSON for the native layer
-        val messagesJson = buildJsonArray {
+    private fun buildMessagesJson(messages: List<ChatMessage>): String {
+        return buildJsonArray {
             for (msg in messages) {
                 add(buildJsonObject {
                     put("role", msg.role)
@@ -97,56 +92,89 @@ class LocalLlmClient(
                 })
             }
         }.toString()
+    }
+
+    /**
+     * Run a non-streaming chat completion locally and return the full response text.
+     */
+    suspend fun chatCompletion(
+        messages: List<ChatMessage>,
+        maxTokens: Int,
+        temperature: Float,
+    ): String {
+        val messagesJson = buildMessagesJson(messages)
+        val result = llmEngine.inferChat(
+            messagesJson = messagesJson,
+            maxTokens = maxTokens,
+            temperature = temperature,
+            topP = 0.95f,
+        )
+        if (result.startsWith("ERROR: ")) {
+            throw RuntimeException(result.removePrefix("ERROR: "))
+        }
+        return result
+    }
+
+    /**
+     * Stream chat completions from the local LLM, producing ChatCompletionChunk
+     * events in the same format as the OpenAI streaming API.
+     */
+    fun streamChatCompletion(
+        messages: List<ChatMessage>,
+        temperature: Float?,
+        maxTokens: Int?,
+        topP: Float?,
+    ): Flow<ChatCompletionChunk> = channelFlow {
+        val messagesJson = buildMessagesJson(messages)
 
         // Collect streaming progress from the engine
-        val collectorJob = coroutineScope {
-            val tokenBuffer = StringBuilder()
-            val progressJob = launch {
-                llmEngine.progress.collect { progress ->
-                    if (progress.tokenText.isNotEmpty()) {
-                        // Emit each token as a streaming chunk
-                        val chunk = ChatCompletionChunk(
-                            id = "local",
-                            model = loadedModelId ?: "local",
-                            choices = listOf(
-                                dev.nutting.pocketllm.data.remote.model.ChunkChoice(
-                                    index = 0,
-                                    delta = dev.nutting.pocketllm.data.remote.model.Delta(
-                                        content = progress.tokenText,
-                                    ),
-                                    finishReason = null,
-                                )
-                            ),
-                        )
-                        emit(chunk)
-                    }
-                    if (progress.phase == "complete") {
-                        // Emit final chunk with finish reason
-                        val finalChunk = ChatCompletionChunk(
-                            id = "local",
-                            model = loadedModelId ?: "local",
-                            choices = listOf(
-                                dev.nutting.pocketllm.data.remote.model.ChunkChoice(
-                                    index = 0,
-                                    delta = dev.nutting.pocketllm.data.remote.model.Delta(),
-                                    finishReason = "stop",
-                                )
-                            ),
-                        )
-                        emit(finalChunk)
-                    }
+        val progressJob = launch {
+            llmEngine.progress.collect { progress ->
+                if (progress.tokenText.isNotEmpty() && progress.phase != "complete") {
+                    val chunk = ChatCompletionChunk(
+                        id = "local",
+                        model = loadedModelId ?: "local",
+                        choices = listOf(
+                            dev.nutting.pocketllm.data.remote.model.ChunkChoice(
+                                index = 0,
+                                delta = dev.nutting.pocketllm.data.remote.model.Delta(
+                                    content = progress.tokenText,
+                                ),
+                                finishReason = null,
+                            )
+                        ),
+                    )
+                    send(chunk)
+                }
+                if (progress.phase == "complete") {
+                    val finalChunk = ChatCompletionChunk(
+                        id = "local",
+                        model = loadedModelId ?: "local",
+                        choices = listOf(
+                            dev.nutting.pocketllm.data.remote.model.ChunkChoice(
+                                index = 0,
+                                delta = dev.nutting.pocketllm.data.remote.model.Delta(),
+                                finishReason = "stop",
+                            )
+                        ),
+                    )
+                    send(finalChunk)
                 }
             }
+        }
 
-            // Run inference (blocking)
-            llmEngine.inferChat(
-                messagesJson = messagesJson,
-                maxTokens = maxTokens ?: 2048,
-                temperature = temperature ?: 0.7f,
-                topP = topP ?: 0.95f,
-            )
+        // Run inference (blocking)
+        val result = llmEngine.inferChat(
+            messagesJson = messagesJson,
+            maxTokens = maxTokens ?: 2048,
+            temperature = temperature ?: 0.7f,
+            topP = topP ?: 0.95f,
+        )
 
-            progressJob.cancel()
+        progressJob.cancel()
+
+        if (result.startsWith("ERROR: ")) {
+            throw RuntimeException(result.removePrefix("ERROR: "))
         }
     }
 

@@ -66,7 +66,7 @@ class LlmEngine {
         Log.i(TAG, "Devices: $deviceInfo")
     }
 
-    suspend fun loadModel(modelPath: String, nThreads: Int = 0, gpuOffloadPercent: Int = 100, contextSize: Int = 4096) {
+    suspend fun loadModel(modelPath: String, projectorPath: String = "", nThreads: Int = 0, gpuOffloadPercent: Int = 100, contextSize: Int = 2048) {
         // If a previous inference crashed, clean up the poisoned state first
         if (_state.value is State.Error) {
             Log.w(TAG, "Loading model from error state — unloading first")
@@ -76,7 +76,7 @@ class LlmEngine {
         _state.value = State.Loading
         try {
             val result = withContext(Dispatchers.Default) {
-                nativeLoadModel(modelPath, nThreads, gpuOffloadPercent, contextSize)
+                nativeLoadModel(modelPath, projectorPath, nThreads, gpuOffloadPercent, contextSize)
             }
             if (result == 0) {
                 deviceInfo = nativeDeviceInfo()
@@ -88,6 +88,7 @@ class LlmEngine {
                     -1 -> "Native state corrupted — please restart the app"
                     1 -> "Failed to load model"
                     2 -> "Failed to create context"
+                    3 -> "Failed to load vision projector"
                     else -> "Unknown load error: $result"
                 }
                 _state.value = State.Error(msg)
@@ -156,7 +157,7 @@ class LlmEngine {
     external fun nativePerfInfo(): String
     external fun nativeModelName(): String
     private external fun nativeInit(backendPaths: Array<String>)
-    private external fun nativeLoadModel(modelPath: String, nThreads: Int, gpuOffloadPercent: Int, contextSize: Int): Int
+    private external fun nativeLoadModel(modelPath: String, projectorPath: String, nThreads: Int, gpuOffloadPercent: Int, contextSize: Int): Int
     private external fun nativeInferChat(messagesJson: String, maxTokens: Int, temperature: Float, topP: Float, topK: Int, minP: Float, repeatPenalty: Float): String
     private external fun nativeCancel()
     private external fun nativeUnload()

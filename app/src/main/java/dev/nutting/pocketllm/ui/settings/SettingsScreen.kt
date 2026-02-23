@@ -60,6 +60,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
     onNavigateToServers: () -> Unit = {},
+    onNavigateToModels: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -91,8 +92,8 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Servers
-            SectionHeader("Servers")
+            // LLM Providers
+            SectionHeader("LLM Providers")
 
             Surface(
                 onClick = onNavigateToServers,
@@ -108,6 +109,28 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Manage servers", style = MaterialTheme.typography.bodyLarge)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Surface(
+                onClick = onNavigateToModels,
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Local models", style = MaterialTheme.typography.bodyLarge)
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = null,

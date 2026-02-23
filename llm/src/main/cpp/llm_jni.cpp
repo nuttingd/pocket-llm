@@ -13,6 +13,8 @@
 #include "gguf.h"
 #include "common.h"
 #include "sampling.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 #include <nlohmann/json.hpp>
 
@@ -29,6 +31,7 @@ constexpr int BATCH_SIZE = 512;
 
 static llama_model   *g_model   = nullptr;
 static llama_context *g_context = nullptr;
+static mtmd_context  *g_mtmd    = nullptr;
 static std::atomic<bool> g_cancel(false);
 static std::mutex g_engine_mutex;
 
@@ -73,6 +76,7 @@ static void poison_native_state() {
     g_poisoned.store(true);
     g_model   = nullptr;
     g_context = nullptr;
+    g_mtmd    = nullptr;
     LOGe("Native state poisoned after crash — model must be reloaded");
 }
 
@@ -141,7 +145,7 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     JNIEnv *env, jobject,
-    jstring jModelPath, jint nThreads, jint gpuOffloadPercent, jint contextSize
+    jstring jModelPath, jstring jProjectorPath, jint nThreads, jint gpuOffloadPercent, jint contextSize
 ) {
     if (g_poisoned.load()) {
         LOGe("nativeLoadModel called while native state is poisoned");
@@ -151,9 +155,11 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
     const auto *model_path = env->GetStringUTFChars(jModelPath, nullptr);
+    const auto *proj_path  = env->GetStringUTFChars(jProjectorPath, nullptr);
     LOGi("Loading model: %s", model_path);
+    LOGi("Loading projector: %s", proj_path);
 
-    // Load model — offload layers to GPU based on percentage setting
+    // Load text model — offload layers to GPU based on percentage setting
     llama_model_params model_params = llama_model_default_params();
     int n_gpu_layers = -1;
     {
@@ -181,13 +187,14 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     if (!model) {
         LOGe("Failed to load model from %s", model_path);
         env->ReleaseStringUTFChars(jModelPath, model_path);
+        env->ReleaseStringUTFChars(jProjectorPath, proj_path);
         return 1;
     }
     g_model = model;
 
-    // Create context
+    // Create context with user-configurable context size
     int threads = nThreads > 0 ? nThreads : get_n_threads();
-    int ctx_size = contextSize > 0 ? contextSize : 4096;
+    int ctx_size = contextSize > 0 ? contextSize : 2048;
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = ctx_size;
     ctx_params.n_batch = BATCH_SIZE;
@@ -202,15 +209,63 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
         llama_model_free(g_model);
         g_model = nullptr;
         env->ReleaseStringUTFChars(jModelPath, model_path);
+        env->ReleaseStringUTFChars(jProjectorPath, proj_path);
         return 2;
     }
 
+    // Init multimodal context (only if projector path is provided)
+    if (proj_path && strlen(proj_path) > 0) {
+        mtmd_context_params mtmd_params = mtmd_context_params_default();
+        mtmd_params.n_threads = threads;
+        mtmd_params.use_gpu = true;
+        mtmd_params.warmup = true;
+        mtmd_params.image_max_tokens = 512;
+
+        g_mtmd = mtmd_init_from_file(proj_path, g_model, mtmd_params);
+        if (!g_mtmd) {
+            LOGe("Failed to init mtmd from %s", proj_path);
+            llama_free(g_context);
+            g_context = nullptr;
+            llama_model_free(g_model);
+            g_model = nullptr;
+            env->ReleaseStringUTFChars(jModelPath, model_path);
+            env->ReleaseStringUTFChars(jProjectorPath, proj_path);
+            return 3;
+        }
+        LOGi("Multimodal projector loaded");
+    } else {
+        g_mtmd = nullptr;
+        LOGi("No projector — text-only mode");
+    }
+
     env->ReleaseStringUTFChars(jModelPath, model_path);
+    env->ReleaseStringUTFChars(jProjectorPath, proj_path);
     LOGi("Model loaded successfully (threads=%d, ctx=%d)", threads, ctx_size);
     return 0;
 }
 
 // ---- Chat Inference ----
+
+// Return the number of leading bytes that form complete UTF-8 characters.
+// Any trailing incomplete multi-byte sequence is excluded.
+static size_t utf8_complete_length(const char *s, size_t len) {
+    if (len == 0) return 0;
+    // Walk backwards past continuation bytes (10xxxxxx)
+    size_t i = len;
+    while (i > 0 && (static_cast<unsigned char>(s[i - 1]) & 0xC0) == 0x80) {
+        --i;
+    }
+    if (i == 0) return 0; // all continuation bytes — incomplete
+    unsigned char lead = static_cast<unsigned char>(s[i - 1]);
+    int expected;
+    if ((lead & 0x80) == 0)        expected = 1;
+    else if ((lead & 0xE0) == 0xC0) expected = 2;
+    else if ((lead & 0xF0) == 0xE0) expected = 3;
+    else if ((lead & 0xF8) == 0xF0) expected = 4;
+    else return i - 1; // invalid lead byte — skip it
+    int actual = static_cast<int>(len - (i - 1));
+    return actual >= expected ? len : i - 1;
+}
 
 static void report_progress(JNIEnv *env, jobject thiz, jmethodID mid, const char *phase, int tokens, const char *text = "") {
     jstring jPhase = env->NewStringUTF(phase);
@@ -373,6 +428,7 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
 
     common_sampler *sampler = common_sampler_init(g_model, sparams);
     std::ostringstream out;
+    std::string utf8_buf; // Buffer for incomplete multi-byte UTF-8 sequences
     auto t_start = std::chrono::steady_clock::now();
 
     llama_batch batch = llama_batch_init(1, 0, 1);
@@ -393,13 +449,21 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
         std::string piece = common_token_to_piece(g_context, new_token);
         out << piece;
 
-        // Report every token for streaming UI
+        // Buffer token bytes and only send complete UTF-8 to JNI
+        utf8_buf += piece;
+        size_t complete = utf8_complete_length(utf8_buf.c_str(), utf8_buf.size());
+
         auto now = std::chrono::steady_clock::now();
         double elapsed_s = std::chrono::duration<double>(now - t_start).count();
         double tok_per_s = elapsed_s > 0 ? (i + 1) / elapsed_s : 0;
         char phase_buf[64];
         snprintf(phase_buf, sizeof(phase_buf), "generating:%.1f", tok_per_s);
-        report_progress(env, thiz, progressMid, phase_buf, i + 1, piece.c_str());
+
+        if (complete > 0) {
+            std::string to_send = utf8_buf.substr(0, complete);
+            utf8_buf.erase(0, complete);
+            report_progress(env, thiz, progressMid, phase_buf, i + 1, to_send.c_str());
+        }
 
         common_batch_clear(batch);
         common_batch_add(batch, new_token, n_past++, {0}, true);
@@ -418,6 +482,12 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
     g_in_guarded_section = false;
 
     std::string result = out.str();
+    // Trim any trailing incomplete UTF-8 sequence before passing to JNI
+    size_t safe_len = utf8_complete_length(result.c_str(), result.size());
+    if (safe_len < result.size()) {
+        LOGw("Trimming %zu trailing incomplete UTF-8 bytes from result", result.size() - safe_len);
+        result.resize(safe_len);
+    }
     LOGi("Chat inference generated %zu chars", result.size());
     return env->NewStringUTF(result.c_str());
 }
@@ -443,6 +513,10 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeUnload(JNIEnv *, jobject) {
 
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
+    if (g_mtmd) {
+        mtmd_free(g_mtmd);
+        g_mtmd = nullptr;
+    }
     if (g_context) {
         llama_free(g_context);
         g_context = nullptr;

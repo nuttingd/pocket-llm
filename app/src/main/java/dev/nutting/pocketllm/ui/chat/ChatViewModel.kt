@@ -65,6 +65,7 @@ class ChatViewModel(
 
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
+    private var compactionJob: Job? = null
     private var isFirstMessage = true
     private var toolApprovalDeferred: CompletableDeferred<Boolean>? = null
 
@@ -91,15 +92,31 @@ class ChatViewModel(
             loadConversationParams(conversationId)
             viewModelScope.launch {
                 val conversation = conversationRepository.getById(conversationId).first()
-                loadServerAndModels(
-                    preferredServerId = conversation?.lastServerProfileId,
-                    preferredModelId = conversation?.lastModelId,
-                )
+                val modelId = conversation?.lastModelId
+                val localModels = _uiState.value.localModels
+                if (conversation?.lastServerProfileId == null && modelId != null && localModels.any { it.id == modelId }) {
+                    // Restore local model state
+                    switchToLocal(modelId)
+                } else {
+                    loadServerAndModels(
+                        preferredServerId = conversation?.lastServerProfileId,
+                        preferredModelId = conversation?.lastModelId,
+                    )
+                }
             }
         } else {
             isFirstMessage = true
             _uiState.update { it.copy(conversationParams = ConversationParameters()) }
-            loadServerAndModels()
+            // Check if there's an active local model to use by default
+            viewModelScope.launch {
+                val activeId = localModelStore?.activeModelId?.first()
+                val localModels = _uiState.value.localModels
+                if (activeId != null && localModels.any { it.id == activeId }) {
+                    switchToLocal(activeId)
+                } else {
+                    loadServerAndModels()
+                }
+            }
         }
     }
 
@@ -247,8 +264,10 @@ class ChatViewModel(
                     }
                 }
         }
-        viewModelScope.launch {
+        compactionJob?.cancel()
+        compactionJob = viewModelScope.launch {
             compactionSummaryDao?.getByConversationId(conversationId)?.collect { summaries ->
+                Log.d(TAG, "Compaction summaries updated: count=${summaries.size}, compactedCounts=${summaries.map { it.compactedMessageCount }}")
                 _uiState.update { it.copy(compactionSummaries = summaries) }
             }
         }
@@ -417,7 +436,7 @@ class ChatViewModel(
                     ConversationEntity(
                         id = conversationId,
                         title = title,
-                        lastServerProfileId = serverId,
+                        lastServerProfileId = if (isLocal) null else serverId,
                         lastModelId = modelId,
                         createdAt = now,
                         updatedAt = now,
@@ -436,6 +455,10 @@ class ChatViewModel(
                 )
             }
 
+            val localContextWindowSize = if (isLocal) {
+                localModelStore?.getById(modelId)?.contextWindowSize
+            } else null
+
             chatManager.sendMessage(
                 conversationId = conversationId,
                 content = content,
@@ -448,11 +471,16 @@ class ChatViewModel(
                 frequencyPenalty = resolved.frequencyPenalty,
                 presencePenalty = resolved.presencePenalty,
                 imageDataUrls = imageDataUrls,
+                contextWindowSize = localContextWindowSize,
             ).collect { streamState ->
                 when (streamState) {
+                    is StreamState.Compacting -> {
+                        _uiState.update { it.copy(isCompacting = true) }
+                    }
                     is StreamState.Delta -> {
                         _uiState.update {
                             it.copy(
+                                isCompacting = false,
                                 currentStreamingContent = it.currentStreamingContent + streamState.content,
                                 currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
                             )
@@ -460,7 +488,7 @@ class ChatViewModel(
                     }
                     is StreamState.Complete -> {
                         _uiState.update {
-                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "", toolCallResults = emptyMap())
+                            it.copy(isStreaming = false, isCompacting = false, currentStreamingContent = "", currentStreamingThinking = "", toolCallResults = emptyMap())
                         }
                         observeConversation(conversationId)
                         if (isFirstMessage) {
@@ -471,7 +499,7 @@ class ChatViewModel(
                     is StreamState.Error -> {
                         Log.e(TAG, "Stream error: ${streamState.error}")
                         _uiState.update {
-                            it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, isCompacting = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                     }
                     is StreamState.ToolCallsPending -> {
@@ -517,14 +545,19 @@ class ChatViewModel(
     }
 
     fun switchModel(modelId: String) {
-        _uiState.update { it.copy(selectedModelId = modelId) }
-        persistServerAndModel()
+        val localModels = _uiState.value.localModels
+        if (localModels.any { it.id == modelId }) {
+            switchToLocal(modelId)
+        } else {
+            _uiState.update { it.copy(selectedModelId = modelId) }
+            persistServerAndModel()
+        }
     }
 
     private fun persistServerAndModel() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
-        val serverId = state.selectedServer?.id
+        val serverId = if (state.useLocalModel) null else state.selectedServer?.id
         val modelId = state.selectedModelId
         viewModelScope.launch {
             conversationRepository.updateServerAndModel(conversationId, serverId, modelId)
@@ -547,6 +580,10 @@ class ChatViewModel(
             // Set active leaf to the parent so ChatManager builds from there
             conversationRepository.updateActiveLeaf(message.conversationId, parentId)
 
+            val localContextWindowSize = if (isLocal) {
+                localModelStore?.getById(modelId)?.contextWindowSize
+            } else null
+
             chatManager.sendMessage(
                 conversationId = message.conversationId,
                 content = "", // Empty - we're regenerating from the parent's user message
@@ -558,11 +595,16 @@ class ChatViewModel(
                 topP = resolved.topP,
                 frequencyPenalty = resolved.frequencyPenalty,
                 presencePenalty = resolved.presencePenalty,
+                contextWindowSize = localContextWindowSize,
             ).collect { streamState ->
                 when (streamState) {
+                    is StreamState.Compacting -> {
+                        _uiState.update { it.copy(isCompacting = true) }
+                    }
                     is StreamState.Delta -> {
                         _uiState.update {
                             it.copy(
+                                isCompacting = false,
                                 currentStreamingContent = it.currentStreamingContent + streamState.content,
                                 currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
                             )
@@ -570,14 +612,14 @@ class ChatViewModel(
                     }
                     is StreamState.Complete -> {
                         _uiState.update {
-                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, isCompacting = false, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                         observeConversation(message.conversationId)
                     }
                     is StreamState.Error -> {
                         Log.e(TAG, "Regeneration stream error: ${streamState.error}")
                         _uiState.update {
-                            it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, isCompacting = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                     }
                     is StreamState.ToolCallsPending -> {
@@ -651,11 +693,23 @@ class ChatViewModel(
     fun compactConversation() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
-        val serverId = state.selectedServer?.id ?: return
+        val serverId = if (state.useLocalModel) {
+            LocalLlmClient.LOCAL_SERVER_ID
+        } else {
+            state.selectedServer?.id ?: return
+        }
         val modelId = state.selectedModelId ?: return
 
         viewModelScope.launch {
-            val summary = chatManager.compactConversation(conversationId, serverId, modelId)
+            _uiState.update { it.copy(isCompacting = true) }
+            val localContextWindowSize = if (state.useLocalModel) {
+                localModelStore?.getById(modelId)?.contextWindowSize
+            } else null
+            Log.d(TAG, "Starting compaction for conversation=$conversationId, server=$serverId, model=$modelId")
+            val summary = chatManager.compactConversation(conversationId, serverId, modelId, localContextWindowSize)
+            Log.d(TAG, "Compaction result: ${if (summary != null) "success (${summary.take(50)}...)" else "null"}")
+            Log.d(TAG, "Current summaries in state: ${_uiState.value.compactionSummaries.size}")
+            _uiState.update { it.copy(isCompacting = false) }
             if (summary != null) {
                 _uiState.update { it.copy(error = null) }
             } else {

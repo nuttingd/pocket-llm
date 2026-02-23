@@ -9,7 +9,6 @@ import dev.nutting.pocketllm.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -27,10 +26,6 @@ class ServerConfigViewModel(
     val uiState: StateFlow<ServerConfigUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            val lastServerId = settingsRepository.getLastActiveServerId().first()
-            _uiState.update { it.copy(isFirstLaunch = lastServerId.isBlank()) }
-        }
         viewModelScope.launch {
             serverRepository.getAll().collect { servers ->
                 _uiState.update { it.copy(servers = servers) }
@@ -96,7 +91,7 @@ class ServerConfigViewModel(
                 }
 
                 settingsRepository.setLastActiveServerId(id)
-                _uiState.update { it.copy(editingServer = null, isLoading = false, isFirstLaunch = false) }
+                _uiState.update { it.copy(editingServer = null, isLoading = false) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save server", e)
                 _uiState.update { it.copy(error = e.message, isLoading = false) }

@@ -25,6 +25,9 @@ class ModelDownloadWorker(
         const val KEY_MODEL_ID = "model_id"
         const val KEY_MODEL_URL = "model_url"
         const val KEY_MODEL_FILENAME = "model_filename"
+        const val KEY_PROJECTOR_URL = "projector_url"
+        const val KEY_PROJECTOR_FILENAME = "projector_filename"
+        const val KEY_PROJECTOR_SIZE = "projector_size"
         const val KEY_TOTAL_SIZE = "total_size"
         const val KEY_PROGRESS_BYTES = "progress_bytes"
         const val KEY_PROGRESS_TOTAL = "progress_total"
@@ -53,7 +56,10 @@ class ModelDownloadWorker(
         val modelId = inputData.getString(KEY_MODEL_ID) ?: return Result.failure()
         val modelUrl = inputData.getString(KEY_MODEL_URL) ?: return Result.failure()
         val modelFilename = inputData.getString(KEY_MODEL_FILENAME) ?: return Result.failure()
+        val projectorUrl = inputData.getString(KEY_PROJECTOR_URL)
+        val projectorFilename = inputData.getString(KEY_PROJECTOR_FILENAME)
         val totalSize = inputData.getLong(KEY_TOTAL_SIZE, 0L)
+        val modelSizeBytes = totalSize - inputData.getLong(KEY_PROJECTOR_SIZE, 0L)
 
         val container = (applicationContext as PocketLlmApplication).container
         val localModelStore = container.localModelStore
@@ -62,6 +68,7 @@ class ModelDownloadWorker(
         createNotificationChannel()
 
         val modelFile = File(modelsDir, modelFilename)
+        val hasProjector = !projectorUrl.isNullOrEmpty() && !projectorFilename.isNullOrEmpty()
 
         try {
             setForeground(createForegroundInfo("Downloading model...", 0, totalSize))
@@ -69,14 +76,14 @@ class ModelDownloadWorker(
             // Download model file
             downloader.download(modelUrl, modelFile).collect { progress ->
                 localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, progress.bytesDownloaded)
-                setForeground(createForegroundInfo("Downloading model...", progress.bytesDownloaded, progress.totalBytes))
+                setForeground(createForegroundInfo("Downloading model...", progress.bytesDownloaded, totalSize))
                 setProgress(workDataOf(
                     KEY_PROGRESS_BYTES to progress.bytesDownloaded,
-                    KEY_PROGRESS_TOTAL to progress.totalBytes,
+                    KEY_PROGRESS_TOTAL to totalSize,
                 ))
             }
 
-            // Validate GGUF magic number
+            // Validate GGUF magic number for model
             if (!isValidGguf(modelFile)) {
                 Log.e(TAG, "Downloaded file is not a valid GGUF")
                 modelFile.delete()
@@ -84,14 +91,46 @@ class ModelDownloadWorker(
                 return Result.failure()
             }
 
+            // Download projector file if present
+            if (hasProjector) {
+                val projectorFile = File(modelsDir, projectorFilename!!)
+
+                downloader.download(projectorUrl!!, projectorFile).collect { progress ->
+                    val combinedBytes = modelSizeBytes + progress.bytesDownloaded
+                    localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, combinedBytes)
+                    setForeground(createForegroundInfo("Downloading projector...", combinedBytes, totalSize))
+                    setProgress(workDataOf(
+                        KEY_PROGRESS_BYTES to combinedBytes,
+                        KEY_PROGRESS_TOTAL to totalSize,
+                    ))
+                }
+
+                if (!isValidGguf(projectorFile)) {
+                    Log.e(TAG, "Downloaded projector is not a valid GGUF")
+                    modelFile.delete()
+                    projectorFile.delete()
+                    localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                    return Result.failure()
+                }
+            }
+
             // Mark complete and set as active
-            localModelStore.updateStatus(modelId, DownloadStatus.COMPLETE, modelFile.length())
+            localModelStore.updateStatus(modelId, DownloadStatus.COMPLETE, totalSize)
             localModelStore.setActiveModelId(modelId)
             Log.i(TAG, "Model $modelId downloaded successfully")
             return Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for $modelId", e)
-            localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+            if (runAttemptCount >= 5) {
+                Log.e(TAG, "Max retries reached for $modelId, cleaning up")
+                modelFile.delete()
+                if (hasProjector) File(modelsDir, projectorFilename!!).delete()
+                localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                return Result.failure()
+            }
+            // Keep partial file for resume on retry
+            val existingBytes = if (modelFile.exists()) modelFile.length() else 0L
+            localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, existingBytes)
             return Result.retry()
         }
     }
@@ -123,6 +162,10 @@ class ModelDownloadWorker(
             .setOngoing(true)
             .build()
 
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return ForegroundInfo(
+            NOTIFICATION_ID,
+            notification,
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
     }
 }
