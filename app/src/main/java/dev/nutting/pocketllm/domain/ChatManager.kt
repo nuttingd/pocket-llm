@@ -127,37 +127,53 @@ class ChatManager(
 
             // Check if compaction is needed — account for prior compaction coverage
             val contextWindow = contextWindowSize ?: ((maxTokens ?: 2048) * 4)
-            val lastCompactedCount = compactionSummaryDao?.getMaxCompactedCount(conversationId) ?: 0
+            val latestCompaction = compactionSummaryDao?.getLatest(conversationId)
+            val lastCompactedCount = latestCompaction?.compactedMessageCount ?: 0
             val uncompactedMessages = if (lastCompactedCount > 0 && lastCompactedCount < branchMessages.size) {
                 branchMessages.drop(lastCompactedCount)
             } else {
                 branchMessages
             }
-            val estimatedTokens = TokenCounter.estimateTokens(uncompactedMessages)
+            val estimatedTokens = if (latestCompaction != null) {
+                // Prior summary replaces compacted messages in the context
+                TokenCounter.estimateTokens(latestCompaction.summary) + TokenCounter.estimateTokens(uncompactedMessages)
+            } else {
+                TokenCounter.estimateTokens(uncompactedMessages)
+            }
             val compactionThreshold = (contextWindow * 0.75).toInt()
 
             val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4) {
-                val messagesToCompact = branchMessages.dropLast(4)
                 val recentMessages = branchMessages.takeLast(4)
                 val autoInsertBeforeId = recentMessages.first().id
+                // Only compact messages since last compaction (plus keep last 4 for context)
+                val newMessagesToCompact = if (lastCompactedCount > 0 && lastCompactedCount < branchMessages.size - 4) {
+                    branchMessages.drop(lastCompactedCount).dropLast(4)
+                } else {
+                    branchMessages.dropLast(4)
+                }
+                val totalCompactedCount = branchMessages.size - 4
 
                 emit(StreamState.Compacting)
 
                 val summary = if (isLocal) {
                     tryCompactMessagesLocal(
-                        messagesToCompact = messagesToCompact,
+                        messagesToCompact = newMessagesToCompact,
+                        totalCompactedCount = totalCompactedCount,
                         conversationId = conversationId,
                         modelId = modelId,
+                        priorSummary = latestCompaction?.summary,
                         insertedBeforeMessageId = autoInsertBeforeId,
                     )
                 } else {
                     tryCompactMessages(
-                        messagesToCompact = messagesToCompact,
+                        messagesToCompact = newMessagesToCompact,
+                        totalCompactedCount = totalCompactedCount,
                         conversationId = conversationId,
                         baseUrl = server!!.baseUrl,
                         apiKey = apiKey,
                         timeoutSeconds = server.requestTimeoutSeconds.toLong(),
                         modelId = modelId,
+                        priorSummary = latestCompaction?.summary,
                         insertedBeforeMessageId = autoInsertBeforeId,
                     )
                 }
@@ -447,58 +463,107 @@ class ChatManager(
         val branchMessages = messageRepository.getActiveBranch(leafId).first()
         if (branchMessages.size < 2) return null
 
-        val messagesToCompact = branchMessages.dropLast(2)
+        val latestCompaction = compactionSummaryDao?.getLatest(conversationId)
+        val lastCompactedCount = latestCompaction?.compactedMessageCount ?: 0
+
         val insertedBeforeMessageId = branchMessages[branchMessages.size - 2].id
+        val totalCompactedCount = branchMessages.size - 2
+        // Only send new messages since last compaction to the summarizer
+        val newMessagesToCompact = if (lastCompactedCount > 0 && lastCompactedCount < branchMessages.size - 2) {
+            branchMessages.drop(lastCompactedCount).dropLast(2)
+        } else {
+            branchMessages.dropLast(2)
+        }
+
+        if (newMessagesToCompact.isEmpty() && latestCompaction == null) return null
 
         return if (isLocalServer(serverId)) {
             tryCompactMessagesLocal(
-                messagesToCompact = messagesToCompact,
+                messagesToCompact = newMessagesToCompact,
+                totalCompactedCount = totalCompactedCount,
                 conversationId = conversationId,
                 modelId = modelId,
+                priorSummary = latestCompaction?.summary,
                 insertedBeforeMessageId = insertedBeforeMessageId,
             )
         } else {
             val server = serverRepository.getById(serverId).first() ?: return null
             val apiKey = if (server.hasApiKey) serverRepository.getApiKey(serverId).first() else null
             tryCompactMessages(
-                messagesToCompact = messagesToCompact,
+                messagesToCompact = newMessagesToCompact,
+                totalCompactedCount = totalCompactedCount,
                 conversationId = conversationId,
                 baseUrl = server.baseUrl,
                 apiKey = apiKey,
                 timeoutSeconds = server.requestTimeoutSeconds.toLong(),
                 modelId = modelId,
+                priorSummary = latestCompaction?.summary,
                 insertedBeforeMessageId = insertedBeforeMessageId,
+            )
+        }
+    }
+
+    private fun buildCompactionPrompt(
+        newMessages: List<MessageEntity>,
+        priorSummary: String?,
+    ): List<ChatMessage> {
+        val newText = newMessages.joinToString("\n") { "${it.role}: ${it.content}" }
+
+        return if (priorSummary != null) {
+            listOf(
+                ChatMessage(
+                    role = "system",
+                    content = ChatContent.Text(
+                        "You have an existing summary of an earlier portion of a conversation. New messages have occurred since that summary. " +
+                        "Produce an updated summary that integrates BOTH the existing summary AND the new messages. " +
+                        "Cover every topic, key fact, decision, and piece of content. Organize chronologically. " +
+                        "The summary must preserve enough context to continue the conversation coherently. " +
+                        "Respond with only the updated summary, no preamble."
+                    ),
+                ),
+                ChatMessage(
+                    role = "user",
+                    content = ChatContent.Text(
+                        "EXISTING SUMMARY:\n$priorSummary\n\nNEW MESSAGES:\n$newText"
+                    ),
+                ),
+            )
+        } else {
+            listOf(
+                ChatMessage(
+                    role = "system",
+                    content = ChatContent.Text(
+                        "Summarize the ENTIRE following conversation from beginning to end. " +
+                        "Cover every topic, key fact, decision, and piece of content discussed — do not focus only on recent messages. " +
+                        "Organize chronologically. The summary must preserve enough context to continue the conversation coherently. " +
+                        "Respond with only the summary, no preamble."
+                    ),
+                ),
+                ChatMessage(
+                    role = "user",
+                    content = ChatContent.Text(newText),
+                ),
             )
         }
     }
 
     private suspend fun tryCompactMessages(
         messagesToCompact: List<MessageEntity>,
+        totalCompactedCount: Int,
         conversationId: String,
         baseUrl: String,
         apiKey: String?,
         timeoutSeconds: Long,
         modelId: String,
+        priorSummary: String? = null,
         insertedBeforeMessageId: String? = null,
     ): String? {
         if (messagesToCompact.isEmpty()) return null
 
-        val conversationText = messagesToCompact.joinToString("\n") { "${it.role}: ${it.content}" }
         val request = ChatCompletionRequest(
             model = modelId,
-            messages = listOf(
-                ChatMessage(
-                    role = "system",
-                    content = ChatContent.Text(
-                        "Summarize the following conversation concisely, preserving key facts, decisions, and context needed to continue the conversation coherently. Respond with only the summary."
-                    ),
-                ),
-                ChatMessage(
-                    role = "user",
-                    content = ChatContent.Text(conversationText),
-                ),
-            ),
-            maxTokens = 500,
+            messages = buildCompactionPrompt(messagesToCompact, priorSummary),
+            maxTokens = 2048,
             temperature = 0.3f,
             stream = false,
         )
@@ -517,7 +582,7 @@ class ChatManager(
                         id = UUID.randomUUID().toString(),
                         conversationId = conversationId,
                         summary = summary,
-                        compactedMessageCount = messagesToCompact.size,
+                        compactedMessageCount = totalCompactedCount,
                         insertedBeforeMessageId = insertedBeforeMessageId,
                         createdAt = System.currentTimeMillis(),
                     )
@@ -532,32 +597,22 @@ class ChatManager(
 
     private suspend fun tryCompactMessagesLocal(
         messagesToCompact: List<MessageEntity>,
+        totalCompactedCount: Int,
         conversationId: String,
         modelId: String,
+        priorSummary: String? = null,
         insertedBeforeMessageId: String? = null,
     ): String? {
         if (messagesToCompact.isEmpty()) return null
         val client = localLlmClient ?: return null
 
-        val conversationText = messagesToCompact.joinToString("\n") { "${it.role}: ${it.content}" }
-        val messages = listOf(
-            ChatMessage(
-                role = "system",
-                content = ChatContent.Text(
-                    "Summarize the following conversation concisely, preserving key facts, decisions, and context needed to continue the conversation coherently. Respond with only the summary."
-                ),
-            ),
-            ChatMessage(
-                role = "user",
-                content = ChatContent.Text(conversationText),
-            ),
-        )
+        val messages = buildCompactionPrompt(messagesToCompact, priorSummary)
 
         return try {
             client.ensureModelLoaded(modelId)
             val summary = client.chatCompletion(
                 messages = messages,
-                maxTokens = 500,
+                maxTokens = 2048,
                 temperature = 0.3f,
             ).trim()
 
@@ -567,7 +622,7 @@ class ChatManager(
                         id = UUID.randomUUID().toString(),
                         conversationId = conversationId,
                         summary = summary,
-                        compactedMessageCount = messagesToCompact.size,
+                        compactedMessageCount = totalCompactedCount,
                         insertedBeforeMessageId = insertedBeforeMessageId,
                         createdAt = System.currentTimeMillis(),
                     )
