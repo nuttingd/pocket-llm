@@ -701,10 +701,12 @@ class ChatViewModel(
         val modelId = state.selectedModelId ?: return
 
         viewModelScope.launch {
+            _uiState.update { it.copy(isCompacting = true) }
             Log.d(TAG, "Starting compaction for conversation=$conversationId, server=$serverId, model=$modelId")
             val summary = chatManager.compactConversation(conversationId, serverId, modelId)
             Log.d(TAG, "Compaction result: ${if (summary != null) "success (${summary.take(50)}...)" else "null"}")
             Log.d(TAG, "Current summaries in state: ${_uiState.value.compactionSummaries.size}")
+            _uiState.update { it.copy(isCompacting = false) }
             if (summary != null) {
                 _uiState.update { it.copy(error = null) }
             } else {
