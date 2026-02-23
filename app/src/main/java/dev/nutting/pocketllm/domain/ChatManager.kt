@@ -70,6 +70,7 @@ class ChatManager(
         frequencyPenalty: Float? = null,
         presencePenalty: Float? = null,
         imageDataUrls: List<String> = emptyList(),
+        contextWindowSize: Int? = null,
     ): Flow<StreamState> = flow {
         try {
             // Resolve server details (skip for local models)
@@ -123,23 +124,40 @@ class ChatManager(
             // Build message list from active branch
             val branchMessages = messageRepository.getActiveBranch(anchorMessage.id).first()
 
-            // Check if compaction is needed (skip for local models — context is limited)
-            val contextWindow = (maxTokens ?: 2048) * 4
-            val estimatedTokens = TokenCounter.estimateTokens(branchMessages)
+            // Check if compaction is needed — account for prior compaction coverage
+            val contextWindow = contextWindowSize ?: ((maxTokens ?: 2048) * 4)
+            val lastCompactedCount = compactionSummaryDao?.getMaxCompactedCount(conversationId) ?: 0
+            val uncompactedMessages = if (lastCompactedCount > 0 && lastCompactedCount < branchMessages.size) {
+                branchMessages.drop(lastCompactedCount)
+            } else {
+                branchMessages
+            }
+            val estimatedTokens = TokenCounter.estimateTokens(uncompactedMessages)
             val compactionThreshold = (contextWindow * 0.75).toInt()
 
-            val effectiveMessages = if (!isLocal && estimatedTokens > compactionThreshold && branchMessages.size > 4) {
+            val effectiveMessages = if (estimatedTokens > compactionThreshold && branchMessages.size > 4) {
                 val messagesToCompact = branchMessages.dropLast(4)
                 val recentMessages = branchMessages.takeLast(4)
+                val autoInsertBeforeId = recentMessages.first().id
 
-                val summary = tryCompactMessages(
-                    messagesToCompact = messagesToCompact,
-                    conversationId = conversationId,
-                    baseUrl = server!!.baseUrl,
-                    apiKey = apiKey,
-                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-                    modelId = modelId,
-                )
+                val summary = if (isLocal) {
+                    tryCompactMessagesLocal(
+                        messagesToCompact = messagesToCompact,
+                        conversationId = conversationId,
+                        modelId = modelId,
+                        insertedBeforeMessageId = autoInsertBeforeId,
+                    )
+                } else {
+                    tryCompactMessages(
+                        messagesToCompact = messagesToCompact,
+                        conversationId = conversationId,
+                        baseUrl = server!!.baseUrl,
+                        apiKey = apiKey,
+                        timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                        modelId = modelId,
+                        insertedBeforeMessageId = autoInsertBeforeId,
+                    )
+                }
 
                 if (summary != null) {
                     listOf(
@@ -424,20 +442,31 @@ class ChatManager(
         val conversation = conversationRepository.getById(conversationId).first() ?: return null
         val leafId = conversation.activeLeafMessageId ?: return null
         val branchMessages = messageRepository.getActiveBranch(leafId).first()
-        if (branchMessages.size <= 4) return null
+        if (branchMessages.size < 2) return null
 
-        val server = serverRepository.getById(serverId).first() ?: return null
-        val apiKey = if (server.hasApiKey) serverRepository.getApiKey(serverId).first() else null
+        val messagesToCompact = branchMessages.dropLast(2)
+        val insertedBeforeMessageId = branchMessages[branchMessages.size - 2].id
 
-        val messagesToCompact = branchMessages.dropLast(4)
-        return tryCompactMessages(
-            messagesToCompact = messagesToCompact,
-            conversationId = conversationId,
-            baseUrl = server.baseUrl,
-            apiKey = apiKey,
-            timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-            modelId = modelId,
-        )
+        return if (isLocalServer(serverId)) {
+            tryCompactMessagesLocal(
+                messagesToCompact = messagesToCompact,
+                conversationId = conversationId,
+                modelId = modelId,
+                insertedBeforeMessageId = insertedBeforeMessageId,
+            )
+        } else {
+            val server = serverRepository.getById(serverId).first() ?: return null
+            val apiKey = if (server.hasApiKey) serverRepository.getApiKey(serverId).first() else null
+            tryCompactMessages(
+                messagesToCompact = messagesToCompact,
+                conversationId = conversationId,
+                baseUrl = server.baseUrl,
+                apiKey = apiKey,
+                timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+                modelId = modelId,
+                insertedBeforeMessageId = insertedBeforeMessageId,
+            )
+        }
     }
 
     private suspend fun tryCompactMessages(
@@ -447,6 +476,7 @@ class ChatManager(
         apiKey: String?,
         timeoutSeconds: Long,
         modelId: String,
+        insertedBeforeMessageId: String? = null,
     ): String? {
         if (messagesToCompact.isEmpty()) return null
 
@@ -485,6 +515,7 @@ class ChatManager(
                         conversationId = conversationId,
                         summary = summary,
                         compactedMessageCount = messagesToCompact.size,
+                        insertedBeforeMessageId = insertedBeforeMessageId,
                         createdAt = System.currentTimeMillis(),
                     )
                 )
@@ -492,6 +523,56 @@ class ChatManager(
             summary
         } catch (e: Exception) {
             Log.w(TAG, "Compaction failed, continuing without summary", e)
+            null
+        }
+    }
+
+    private suspend fun tryCompactMessagesLocal(
+        messagesToCompact: List<MessageEntity>,
+        conversationId: String,
+        modelId: String,
+        insertedBeforeMessageId: String? = null,
+    ): String? {
+        if (messagesToCompact.isEmpty()) return null
+        val client = localLlmClient ?: return null
+
+        val conversationText = messagesToCompact.joinToString("\n") { "${it.role}: ${it.content}" }
+        val messages = listOf(
+            ChatMessage(
+                role = "system",
+                content = ChatContent.Text(
+                    "Summarize the following conversation concisely, preserving key facts, decisions, and context needed to continue the conversation coherently. Respond with only the summary."
+                ),
+            ),
+            ChatMessage(
+                role = "user",
+                content = ChatContent.Text(conversationText),
+            ),
+        )
+
+        return try {
+            client.ensureModelLoaded(modelId)
+            val summary = client.chatCompletion(
+                messages = messages,
+                maxTokens = 500,
+                temperature = 0.3f,
+            ).trim()
+
+            if (summary.isNotBlank()) {
+                compactionSummaryDao?.insert(
+                    CompactionSummaryEntity(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        summary = summary,
+                        compactedMessageCount = messagesToCompact.size,
+                        insertedBeforeMessageId = insertedBeforeMessageId,
+                        createdAt = System.currentTimeMillis(),
+                    )
+                )
+                summary
+            } else null
+        } catch (e: Exception) {
+            Log.w(TAG, "Local compaction failed, continuing without summary", e)
             null
         }
     }
