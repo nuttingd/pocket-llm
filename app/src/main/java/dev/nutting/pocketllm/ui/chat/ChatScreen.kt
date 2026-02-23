@@ -99,13 +99,10 @@ fun ChatScreen(
         }
     }
 
-    // Scroll to new messages. During streaming, scroll once to anchor the
-    // streaming bubble at the top of the viewport, then leave scrolling to the user.
+    // Scroll to bottom when new messages arrive or streaming starts/stops.
+    // With reverseLayout = true, index 0 is the bottom of the list.
     LaunchedEffect(state.messages.size, state.isStreaming) {
-        val totalItems = listState.layoutInfo.totalItemsCount
-        if (totalItems > 0) {
-            listState.animateScrollToItem(totalItems - 1)
-        }
+        listState.animateScrollToItem(0)
     }
 
     LaunchedEffect(state.error) {
@@ -305,16 +302,45 @@ private fun ChatContent(
             )
         }
     } else {
-        val compactionBeforeMessage = state.compactionSummaries.associateBy { it.insertedBeforeMessageId }
+        // Hide compacted messages and show compaction indicator
+        val latestCompaction = state.compactionSummaries.maxByOrNull { it.createdAt }
+        val compactedCount = latestCompaction?.compactedMessageCount ?: 0
+        val hasCompaction = latestCompaction != null && compactedCount > 0 && compactedCount < state.messages.size
+        val compactedMessages = if (hasCompaction) state.messages.take(compactedCount) else emptyList()
+        val visibleMessages = if (hasCompaction) state.messages.drop(compactedCount) else state.messages
+        var showCompactedMessages by remember { mutableStateOf(false) }
 
         LazyColumn(
             state = listState,
+            reverseLayout = true,
             modifier = modifier.fillMaxSize(),
         ) {
-            items(state.messages, key = { it.id }) { message ->
-                compactionBeforeMessage[message.id]?.let { summary ->
-                    CompactionIndicator(summary = summary)
+            // With reverseLayout, index 0 is at the bottom of the screen.
+            // Items are laid out bottom-to-top, so we add newest content first.
+
+            if (state.pendingToolCalls.isNotEmpty()) {
+                items(state.pendingToolCalls.reversed(), key = { it.id }) { toolCall ->
+                    ToolCallCard(
+                        toolCall = toolCall,
+                        status = state.toolCallResults[toolCall.id]?.let {
+                            ToolCallStatus.Complete(it)
+                        } ?: ToolCallStatus.Pending,
+                        onApprove = onApproveToolCalls,
+                        onDecline = onDeclineToolCalls,
+                    )
                 }
+            }
+            if (state.isCompacting) {
+                item(key = "compacting") {
+                    CompactingIndicator()
+                }
+            }
+            if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
+                item(key = "streaming") {
+                    StreamingMessageBubble(content = state.currentStreamingContent)
+                }
+            }
+            items(visibleMessages.reversed(), key = { it.id }) { message ->
                 MessageBubble(
                     message = message,
                     fontSizeSp = state.messageFontSizeSp,
@@ -324,21 +350,22 @@ private fun ChatContent(
                     onDelete = onDelete,
                 )
             }
-            if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
-                item(key = "streaming") {
-                    StreamingMessageBubble(content = state.currentStreamingContent)
-                }
-            }
-            if (state.pendingToolCalls.isNotEmpty()) {
-                items(state.pendingToolCalls, key = { it.id }) { toolCall ->
-                    ToolCallCard(
-                        toolCall = toolCall,
-                        status = state.toolCallResults[toolCall.id]?.let {
-                            ToolCallStatus.Complete(it)
-                        } ?: ToolCallStatus.Pending,
-                        onApprove = onApproveToolCalls,
-                        onDecline = onDeclineToolCalls,
+            if (hasCompaction) {
+                item(key = "compaction-indicator") {
+                    CompactionIndicator(
+                        summary = latestCompaction!!,
+                        showingCompactedMessages = showCompactedMessages,
+                        onToggleCompactedMessages = { showCompactedMessages = !showCompactedMessages },
                     )
+                }
+                if (showCompactedMessages) {
+                    items(compactedMessages.reversed(), key = { "compacted-${it.id}" }) { message ->
+                        MessageBubble(
+                            message = message,
+                            fontSizeSp = state.messageFontSizeSp,
+                            onCopy = onCopy,
+                        )
+                    }
                 }
             }
         }

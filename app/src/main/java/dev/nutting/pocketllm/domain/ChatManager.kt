@@ -36,6 +36,7 @@ sealed interface StreamState {
     data class Error(val error: String) : StreamState
     data class ToolCallsPending(val toolCalls: List<ToolCall>) : StreamState
     data class ToolCallResult(val toolCallId: String, val toolName: String, val result: String) : StreamState
+    data object Compacting : StreamState
 }
 
 class ChatManager(
@@ -139,6 +140,8 @@ class ChatManager(
                 val messagesToCompact = branchMessages.dropLast(4)
                 val recentMessages = branchMessages.takeLast(4)
                 val autoInsertBeforeId = recentMessages.first().id
+
+                emit(StreamState.Compacting)
 
                 val summary = if (isLocal) {
                     tryCompactMessagesLocal(

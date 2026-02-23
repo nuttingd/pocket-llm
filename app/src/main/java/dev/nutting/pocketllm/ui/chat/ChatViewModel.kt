@@ -474,9 +474,13 @@ class ChatViewModel(
                 contextWindowSize = localContextWindowSize,
             ).collect { streamState ->
                 when (streamState) {
+                    is StreamState.Compacting -> {
+                        _uiState.update { it.copy(isCompacting = true) }
+                    }
                     is StreamState.Delta -> {
                         _uiState.update {
                             it.copy(
+                                isCompacting = false,
                                 currentStreamingContent = it.currentStreamingContent + streamState.content,
                                 currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
                             )
@@ -484,7 +488,7 @@ class ChatViewModel(
                     }
                     is StreamState.Complete -> {
                         _uiState.update {
-                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "", toolCallResults = emptyMap())
+                            it.copy(isStreaming = false, isCompacting = false, currentStreamingContent = "", currentStreamingThinking = "", toolCallResults = emptyMap())
                         }
                         observeConversation(conversationId)
                         if (isFirstMessage) {
@@ -495,7 +499,7 @@ class ChatViewModel(
                     is StreamState.Error -> {
                         Log.e(TAG, "Stream error: ${streamState.error}")
                         _uiState.update {
-                            it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, isCompacting = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                     }
                     is StreamState.ToolCallsPending -> {
@@ -594,9 +598,13 @@ class ChatViewModel(
                 contextWindowSize = localContextWindowSize,
             ).collect { streamState ->
                 when (streamState) {
+                    is StreamState.Compacting -> {
+                        _uiState.update { it.copy(isCompacting = true) }
+                    }
                     is StreamState.Delta -> {
                         _uiState.update {
                             it.copy(
+                                isCompacting = false,
                                 currentStreamingContent = it.currentStreamingContent + streamState.content,
                                 currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
                             )
@@ -604,14 +612,14 @@ class ChatViewModel(
                     }
                     is StreamState.Complete -> {
                         _uiState.update {
-                            it.copy(isStreaming = false, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, isCompacting = false, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                         observeConversation(message.conversationId)
                     }
                     is StreamState.Error -> {
                         Log.e(TAG, "Regeneration stream error: ${streamState.error}")
                         _uiState.update {
-                            it.copy(isStreaming = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
+                            it.copy(isStreaming = false, isCompacting = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
                         }
                     }
                     is StreamState.ToolCallsPending -> {

@@ -35,6 +35,7 @@ data class ChatUiState(
     val messageFontSizeSp: Int = 16,
     val editingMessage: MessageEntity? = null,
     val compactionSummaries: List<CompactionSummaryEntity> = emptyList(),
+    val isCompacting: Boolean = false,
     // Local LLM
     val useLocalModel: Boolean = false,
     val localModels: List<LocalModel> = emptyList(),

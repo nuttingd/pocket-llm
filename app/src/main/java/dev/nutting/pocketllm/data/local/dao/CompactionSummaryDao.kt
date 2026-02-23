@@ -16,6 +16,9 @@ interface CompactionSummaryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(summary: CompactionSummaryEntity)
 
+    @Query("SELECT MAX(compactedMessageCount) FROM compaction_summaries WHERE conversationId = :conversationId")
+    suspend fun getMaxCompactedCount(conversationId: String): Int?
+
     @Query("DELETE FROM compaction_summaries WHERE conversationId = :conversationId")
     suspend fun deleteByConversationId(conversationId: String)
 }
