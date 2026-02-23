@@ -10,6 +10,7 @@ data class ModelRegistryEntry(
     val modelFileName: String,
     val modelSizeBytes: Long,
     val minimumRamMb: Int,
+    val contextWindowSize: Int = 4096,
     val projectorDownloadUrl: String? = null,
     val projectorFileName: String? = null,
     val projectorSizeBytes: Long = 0L,

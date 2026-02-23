@@ -157,6 +157,7 @@ class ModelManagementViewModel(
                 sourceUrl = entry.modelDownloadUrl,
                 projectorSourceUrl = entry.projectorDownloadUrl,
                 minimumRamMb = entry.minimumRamMb,
+                contextWindowSize = entry.contextWindowSize,
             )
             localModelStore.save(model)
 
@@ -203,6 +204,38 @@ class ModelManagementViewModel(
                 }
             }
             localModelStore.delete(modelId)
+        }
+    }
+
+    fun retryDownload(modelId: String) {
+        viewModelScope.launch {
+            val model = localModelStore.getById(modelId) ?: return@launch
+            val entry = ModelRegistry.entries.find { it.id == modelId }
+
+            // For registry models, re-enqueue with original URLs
+            if (entry != null) {
+                localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, model.downloadedBytes)
+
+                val workRequest = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
+                    .setInputData(workDataOf(
+                        ModelDownloadWorker.KEY_MODEL_ID to entry.id,
+                        ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
+                        ModelDownloadWorker.KEY_MODEL_FILENAME to entry.modelFileName,
+                        ModelDownloadWorker.KEY_TOTAL_SIZE to entry.totalSizeBytes,
+                        ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
+                        ModelDownloadWorker.KEY_PROJECTOR_FILENAME to entry.projectorFileName,
+                        ModelDownloadWorker.KEY_PROJECTOR_SIZE to entry.projectorSizeBytes,
+                    ))
+                    .build()
+
+                WorkManager.getInstance(appContext)
+                    .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.REPLACE, workRequest)
+
+                Log.i(TAG, "Retry enqueued for $modelId")
+            } else {
+                // Imported or unknown — delete and let user re-import
+                deletePartialDownload(modelId)
+            }
         }
     }
 

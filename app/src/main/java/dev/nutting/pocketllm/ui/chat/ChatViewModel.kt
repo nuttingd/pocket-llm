@@ -65,6 +65,7 @@ class ChatViewModel(
 
     private var streamJob: Job? = null
     private var messagesJob: Job? = null
+    private var compactionJob: Job? = null
     private var isFirstMessage = true
     private var toolApprovalDeferred: CompletableDeferred<Boolean>? = null
 
@@ -265,8 +266,10 @@ class ChatViewModel(
                     }
                 }
         }
-        viewModelScope.launch {
+        compactionJob?.cancel()
+        compactionJob = viewModelScope.launch {
             compactionSummaryDao?.getByConversationId(conversationId)?.collect { summaries ->
+                Log.d(TAG, "Compaction summaries updated: count=${summaries.size}, compactedCounts=${summaries.map { it.compactedMessageCount }}")
                 _uiState.update { it.copy(compactionSummaries = summaries) }
             }
         }
@@ -454,6 +457,10 @@ class ChatViewModel(
                 )
             }
 
+            val localContextWindowSize = if (isLocal) {
+                localModelStore?.getById(modelId)?.contextWindowSize
+            } else null
+
             chatManager.sendMessage(
                 conversationId = conversationId,
                 content = content,
@@ -466,6 +473,7 @@ class ChatViewModel(
                 frequencyPenalty = resolved.frequencyPenalty,
                 presencePenalty = resolved.presencePenalty,
                 imageDataUrls = imageDataUrls,
+                contextWindowSize = localContextWindowSize,
             ).collect { streamState ->
                 when (streamState) {
                     is StreamState.Delta -> {
@@ -573,6 +581,10 @@ class ChatViewModel(
             // Set active leaf to the parent so ChatManager builds from there
             conversationRepository.updateActiveLeaf(message.conversationId, parentId)
 
+            val localContextWindowSize = if (isLocal) {
+                localModelStore?.getById(modelId)?.contextWindowSize
+            } else null
+
             chatManager.sendMessage(
                 conversationId = message.conversationId,
                 content = "", // Empty - we're regenerating from the parent's user message
@@ -584,6 +596,7 @@ class ChatViewModel(
                 topP = resolved.topP,
                 frequencyPenalty = resolved.frequencyPenalty,
                 presencePenalty = resolved.presencePenalty,
+                contextWindowSize = localContextWindowSize,
             ).collect { streamState ->
                 when (streamState) {
                     is StreamState.Delta -> {
@@ -677,11 +690,18 @@ class ChatViewModel(
     fun compactConversation() {
         val state = _uiState.value
         val conversationId = state.conversationId ?: return
-        val serverId = state.selectedServer?.id ?: return
+        val serverId = if (state.useLocalModel) {
+            LocalLlmClient.LOCAL_SERVER_ID
+        } else {
+            state.selectedServer?.id ?: return
+        }
         val modelId = state.selectedModelId ?: return
 
         viewModelScope.launch {
+            Log.d(TAG, "Starting compaction for conversation=$conversationId, server=$serverId, model=$modelId")
             val summary = chatManager.compactConversation(conversationId, serverId, modelId)
+            Log.d(TAG, "Compaction result: ${if (summary != null) "success (${summary.take(50)}...)" else "null"}")
+            Log.d(TAG, "Current summaries in state: ${_uiState.value.compactionSummaries.size}")
             if (summary != null) {
                 _uiState.update { it.copy(error = null) }
             } else {

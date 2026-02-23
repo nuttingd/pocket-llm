@@ -75,18 +75,8 @@ class LocalLlmClient(
         return if (llmEngine.isReady()) llmEngine.modelName() else null
     }
 
-    /**
-     * Stream chat completions from the local LLM, producing ChatCompletionChunk
-     * events in the same format as the OpenAI streaming API.
-     */
-    fun streamChatCompletion(
-        messages: List<ChatMessage>,
-        temperature: Float?,
-        maxTokens: Int?,
-        topP: Float?,
-    ): Flow<ChatCompletionChunk> = channelFlow {
-        // Convert ChatMessages to JSON for the native layer
-        val messagesJson = buildJsonArray {
+    private fun buildMessagesJson(messages: List<ChatMessage>): String {
+        return buildJsonArray {
             for (msg in messages) {
                 add(buildJsonObject {
                     put("role", msg.role)
@@ -102,6 +92,40 @@ class LocalLlmClient(
                 })
             }
         }.toString()
+    }
+
+    /**
+     * Run a non-streaming chat completion locally and return the full response text.
+     */
+    suspend fun chatCompletion(
+        messages: List<ChatMessage>,
+        maxTokens: Int,
+        temperature: Float,
+    ): String {
+        val messagesJson = buildMessagesJson(messages)
+        val result = llmEngine.inferChat(
+            messagesJson = messagesJson,
+            maxTokens = maxTokens,
+            temperature = temperature,
+            topP = 0.95f,
+        )
+        if (result.startsWith("ERROR: ")) {
+            throw RuntimeException(result.removePrefix("ERROR: "))
+        }
+        return result
+    }
+
+    /**
+     * Stream chat completions from the local LLM, producing ChatCompletionChunk
+     * events in the same format as the OpenAI streaming API.
+     */
+    fun streamChatCompletion(
+        messages: List<ChatMessage>,
+        temperature: Float?,
+        maxTokens: Int?,
+        topP: Float?,
+    ): Flow<ChatCompletionChunk> = channelFlow {
+        val messagesJson = buildMessagesJson(messages)
 
         // Collect streaming progress from the engine
         val progressJob = launch {
@@ -140,7 +164,7 @@ class LocalLlmClient(
         }
 
         // Run inference (blocking)
-        llmEngine.inferChat(
+        val result = llmEngine.inferChat(
             messagesJson = messagesJson,
             maxTokens = maxTokens ?: 2048,
             temperature = temperature ?: 0.7f,
@@ -148,6 +172,10 @@ class LocalLlmClient(
         )
 
         progressJob.cancel()
+
+        if (result.startsWith("ERROR: ")) {
+            throw RuntimeException(result.removePrefix("ERROR: "))
+        }
     }
 
     fun cancel() {
