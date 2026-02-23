@@ -121,10 +121,16 @@ class ModelDownloadWorker(
             return Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for $modelId", e)
-            // Clean up both files on failure
-            modelFile.delete()
-            if (hasProjector) File(modelsDir, projectorFilename!!).delete()
-            localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+            if (runAttemptCount >= 5) {
+                Log.e(TAG, "Max retries reached for $modelId, cleaning up")
+                modelFile.delete()
+                if (hasProjector) File(modelsDir, projectorFilename!!).delete()
+                localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                return Result.failure()
+            }
+            // Keep partial file for resume on retry
+            val existingBytes = if (modelFile.exists()) modelFile.length() else 0L
+            localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, existingBytes)
             return Result.retry()
         }
     }
