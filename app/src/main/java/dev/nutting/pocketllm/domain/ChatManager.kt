@@ -163,6 +163,7 @@ class ChatManager(
                         modelId = modelId,
                         priorSummary = latestCompaction?.summary,
                         insertedBeforeMessageId = autoInsertBeforeId,
+                        contextWindowSize = contextWindowSize,
                     )
                 } else {
                     tryCompactMessages(
@@ -457,6 +458,7 @@ class ChatManager(
         conversationId: String,
         serverId: String,
         modelId: String,
+        contextWindowSize: Int? = null,
     ): String? {
         val conversation = conversationRepository.getById(conversationId).first() ?: return null
         val leafId = conversation.activeLeafMessageId ?: return null
@@ -485,6 +487,7 @@ class ChatManager(
                 modelId = modelId,
                 priorSummary = latestCompaction?.summary,
                 insertedBeforeMessageId = insertedBeforeMessageId,
+                contextWindowSize = contextWindowSize,
             )
         } else {
             val server = serverRepository.getById(serverId).first() ?: return null
@@ -602,17 +605,32 @@ class ChatManager(
         modelId: String,
         priorSummary: String? = null,
         insertedBeforeMessageId: String? = null,
+        contextWindowSize: Int? = null,
     ): String? {
         if (messagesToCompact.isEmpty()) return null
         val client = localLlmClient ?: return null
 
         val messages = buildCompactionPrompt(messagesToCompact, priorSummary)
 
+        // Cap maxTokens so prompt + output fits within the model's context window
+        val promptTokens = messages.sumOf { msg ->
+            val text = when (val c = msg.content) {
+                is ChatContent.Text -> c.text
+                else -> ""
+            }
+            TokenCounter.estimateTokens(text) + 4
+        }
+        val maxOutputTokens = if (contextWindowSize != null) {
+            (contextWindowSize - promptTokens - 64).coerceIn(128, 2048)
+        } else {
+            2048
+        }
+
         return try {
             client.ensureModelLoaded(modelId)
             val summary = client.chatCompletion(
                 messages = messages,
-                maxTokens = 2048,
+                maxTokens = maxOutputTokens,
                 temperature = 0.3f,
             ).trim()
 

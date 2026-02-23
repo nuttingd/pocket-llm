@@ -99,10 +99,16 @@ fun ChatScreen(
         }
     }
 
-    // Scroll to bottom when new messages arrive, streaming starts/stops, or content updates.
-    // With reverseLayout = true, index 0 is the bottom of the list.
-    LaunchedEffect(state.messages.size, state.isStreaming, state.isCompacting, state.currentStreamingContent) {
+    // Scroll to bottom on discrete events (new messages, streaming/compacting state changes).
+    LaunchedEffect(state.messages.size, state.isStreaming, state.isCompacting) {
         listState.animateScrollToItem(0)
+    }
+    // Keep pinned to bottom while streaming content grows (instant scroll, no animation fighting).
+    val streamingContentLength = state.currentStreamingContent.length
+    LaunchedEffect(streamingContentLength) {
+        if (state.isStreaming && streamingContentLength > 0) {
+            listState.scrollToItem(0)
+        }
     }
 
     LaunchedEffect(state.error) {
