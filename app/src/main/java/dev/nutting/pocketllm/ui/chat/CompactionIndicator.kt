@@ -46,6 +46,19 @@ fun CompactionIndicator(
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        AnimatedVisibility(visible = expanded) {
+            TextButton(onClick = onToggleCompactedMessages) {
+                Text(
+                    text = if (showingCompactedMessages) {
+                        "Hide earlier messages"
+                    } else {
+                        "Show ${summary.compactedMessageCount} earlier messages"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
@@ -68,40 +81,24 @@ fun CompactionIndicator(
         }
 
         AnimatedVisibility(visible = expanded) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Summary",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                        Text(
-                            text = summary.summary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                }
-
-                TextButton(onClick = onToggleCompactedMessages) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = if (showingCompactedMessages) {
-                            "Hide earlier messages"
-                        } else {
-                            "Show ${summary.compactedMessageCount} earlier messages"
-                        },
+                        text = "Summary",
                         style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    Text(
+                        text = summary.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
