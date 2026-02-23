@@ -99,9 +99,9 @@ fun ChatScreen(
         }
     }
 
-    // Scroll to bottom when new messages arrive or streaming starts/stops.
+    // Scroll to bottom when new messages arrive, streaming starts/stops, or content updates.
     // With reverseLayout = true, index 0 is the bottom of the list.
-    LaunchedEffect(state.messages.size, state.isStreaming) {
+    LaunchedEffect(state.messages.size, state.isStreaming, state.isCompacting, state.currentStreamingContent) {
         listState.animateScrollToItem(0)
     }
 
@@ -335,9 +335,15 @@ private fun ChatContent(
                     CompactingIndicator()
                 }
             }
-            if (state.isStreaming && state.currentStreamingContent.isNotEmpty()) {
-                item(key = "streaming") {
-                    StreamingMessageBubble(content = state.currentStreamingContent)
+            if (state.isStreaming) {
+                if (state.currentStreamingContent.isNotEmpty()) {
+                    item(key = "streaming") {
+                        StreamingMessageBubble(content = state.currentStreamingContent)
+                    }
+                } else if (!state.isCompacting) {
+                    item(key = "typing") {
+                        TypingIndicator()
+                    }
                 }
             }
             items(visibleMessages.reversed(), key = { it.id }) { message ->
