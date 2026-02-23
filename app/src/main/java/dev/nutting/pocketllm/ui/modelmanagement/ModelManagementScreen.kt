@@ -198,11 +198,7 @@ fun ModelManagementScreen(
                     DownloadProgressCard(
                         model = model,
                         onCancel = { viewModel.cancelDownload(model.id) },
-                        onRetry = {
-                            viewModel.deletePartialDownload(model.id)
-                            val entry = state.registryModels.find { it.id == model.id }
-                            entry?.let { viewModel.downloadModel(it) }
-                        },
+                        onRetry = { viewModel.retryDownload(model.id) },
                         onDelete = { viewModel.deletePartialDownload(model.id) },
                     )
                 }

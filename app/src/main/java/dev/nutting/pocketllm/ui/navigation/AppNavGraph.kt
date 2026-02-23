@@ -169,9 +169,16 @@ fun AppNavGraph(
         }
         composable<Setup> {
             SetupScreen(
-                onChooseLocal = { navController.navigate(ModelManagement) },
-                onChooseServer = { navController.navigate(ServerConfig) },
-                onNavigateBack = { navController.popBackStack() },
+                onChooseLocal = {
+                    navController.navigate(ModelManagement) {
+                        popUpTo<Setup> { inclusive = true }
+                    }
+                },
+                onChooseServer = {
+                    navController.navigate(ServerConfig) {
+                        popUpTo<Setup> { inclusive = true }
+                    }
+                },
             )
         }
         composable<ModelManagement> {
