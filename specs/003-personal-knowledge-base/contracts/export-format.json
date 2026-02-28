@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "exportedAt": "[TIMESTAMP]",
+  "documentCount": "[COUNT]",
+  "documents": [
+    {
+      "id": "[UUID]",
+      "title": "[TITLE]",
+      "source_filename": "[FILENAME]",
+      "mimeType": "[MIME_TYPE]",
+      "size_bytes": [SIZE],
+      "created_at": [UNIX_TIMESTAMP],
+      "updated_at": [UNIX_TIMESTAMP],
+      "content_hash": "[SHA256_HEX]",
+      "word_count": [COUNT]
+    }
+  ]
+}
