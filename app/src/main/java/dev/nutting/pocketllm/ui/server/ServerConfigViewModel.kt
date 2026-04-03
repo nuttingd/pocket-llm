@@ -134,6 +134,9 @@ class ServerConfigViewModel(
 
     fun selectModel(modelId: String) {
         _uiState.update { it.copy(selectedModelId = modelId) }
+        viewModelScope.launch {
+            settingsRepository.setLastActiveModelId(modelId)
+        }
     }
 
     fun dismissError() {

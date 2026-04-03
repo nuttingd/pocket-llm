@@ -20,7 +20,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -136,6 +136,8 @@ fun ServerConfigScreen(
                             isTesting = state.isTesting,
                             testResult = state.testResult,
                             fetchedModels = state.models.map { it.id },
+                            selectedModelId = state.selectedModelId,
+                            onModelSelect = { viewModel.selectModel(it) },
                         )
                     }
                 }
@@ -154,6 +156,8 @@ private fun ServerCard(
     isTesting: Boolean = false,
     testResult: String? = null,
     fetchedModels: List<String> = emptyList(),
+    selectedModelId: String? = null,
+    onModelSelect: (String) -> Unit = {},
 ) {
     Card(
         modifier = Modifier
@@ -180,8 +184,9 @@ private fun ServerCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     fetchedModels.forEach { modelId ->
-                        AssistChip(
-                            onClick = {},
+                        FilterChip(
+                            selected = modelId == selectedModelId,
+                            onClick = { onModelSelect(modelId) },
                             label = {
                                 Text(
                                     modelId.substringAfterLast("/").ifBlank { modelId },

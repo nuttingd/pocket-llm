@@ -31,6 +31,7 @@ class SettingsDataStore(context: Context) {
     private val defaultFrequencyPenalty = floatPreferencesKey("default_frequency_penalty")
     private val defaultPresencePenalty = floatPreferencesKey("default_presence_penalty")
     private val lastActiveServerId = stringPreferencesKey("last_active_server_id")
+    private val lastActiveModelId = stringPreferencesKey("last_active_model_id")
     private val lastActiveConversationId = stringPreferencesKey("last_active_conversation_id")
     private val compactionThresholdPct = intPreferencesKey("compaction_threshold_pct")
     private val imageMaxDimensionPx = intPreferencesKey("image_max_dimension_px")
@@ -47,6 +48,7 @@ class SettingsDataStore(context: Context) {
     fun getDefaultFrequencyPenalty(): Flow<Float> = dataStore.data.map { it[defaultFrequencyPenalty] ?: 0.0f }
     fun getDefaultPresencePenalty(): Flow<Float> = dataStore.data.map { it[defaultPresencePenalty] ?: 0.0f }
     fun getLastActiveServerId(): Flow<String> = dataStore.data.map { it[lastActiveServerId] ?: "" }
+    fun getLastActiveModelId(): Flow<String> = dataStore.data.map { it[lastActiveModelId] ?: "" }
     fun getLastActiveConversationId(): Flow<String> = dataStore.data.map { it[lastActiveConversationId] ?: "" }
     fun getCompactionThresholdPct(): Flow<Int> = dataStore.data.map { it[compactionThresholdPct] ?: 75 }
     fun getImageMaxDimensionPx(): Flow<Int> = dataStore.data.map { it[imageMaxDimensionPx] ?: 1024 }
@@ -63,6 +65,7 @@ class SettingsDataStore(context: Context) {
     suspend fun setDefaultFrequencyPenalty(value: Float) { dataStore.edit { it[defaultFrequencyPenalty] = value } }
     suspend fun setDefaultPresencePenalty(value: Float) { dataStore.edit { it[defaultPresencePenalty] = value } }
     suspend fun setLastActiveServerId(value: String) { dataStore.edit { it[lastActiveServerId] = value } }
+    suspend fun setLastActiveModelId(value: String) { dataStore.edit { it[lastActiveModelId] = value } }
     suspend fun setLastActiveConversationId(value: String) { dataStore.edit { it[lastActiveConversationId] = value } }
     suspend fun setCompactionThresholdPct(value: Int) { dataStore.edit { it[compactionThresholdPct] = value } }
     suspend fun setImageMaxDimensionPx(value: Int) { dataStore.edit { it[imageMaxDimensionPx] = value } }
