@@ -21,8 +21,10 @@ import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.domain.tool.ToolExecutor
 import dev.nutting.pocketllm.util.TokenCounter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -134,11 +136,13 @@ class ChatManager(
             } else {
                 branchMessages
             }
-            val estimatedTokens = if (latestCompaction != null) {
-                // Prior summary replaces compacted messages in the context
-                TokenCounter.estimateTokens(latestCompaction.summary) + TokenCounter.estimateTokens(uncompactedMessages)
-            } else {
-                TokenCounter.estimateTokens(uncompactedMessages)
+            val estimatedTokens = withContext(Dispatchers.Default) {
+                if (latestCompaction != null) {
+                    // Prior summary replaces compacted messages in the context
+                    TokenCounter.estimateTokens(latestCompaction.summary) + TokenCounter.estimateTokens(uncompactedMessages)
+                } else {
+                    TokenCounter.estimateTokens(uncompactedMessages)
+                }
             }
             val compactionThreshold = (contextWindow * 0.75).toInt()
 
