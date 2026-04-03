@@ -197,8 +197,10 @@ class ChatViewModel(
 
             try {
                 val models = serverRepository.fetchModels(serverId)
-                val selectedModel = if (preferredModelId != null && models.any { it.id == preferredModelId }) {
-                    preferredModelId
+                val globalModelId = preferredModelId
+                    ?: settingsRepository.getLastActiveModelId().first().takeIf { it.isNotBlank() }
+                val selectedModel = if (globalModelId != null && models.any { it.id == globalModelId }) {
+                    globalModelId
                 } else {
                     models.firstOrNull()?.id
                 }
@@ -519,6 +521,9 @@ class ChatViewModel(
     fun switchModel(modelId: String) {
         _uiState.update { it.copy(selectedModelId = modelId) }
         persistServerAndModel()
+        viewModelScope.launch {
+            settingsRepository.setLastActiveModelId(modelId)
+        }
     }
 
     private fun persistServerAndModel() {

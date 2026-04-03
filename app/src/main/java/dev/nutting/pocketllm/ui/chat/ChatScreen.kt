@@ -434,8 +434,8 @@ private fun ServerModelSelector(
     Box {
         TextButton(
             onClick = {
-                if (state.availableServers.size > 1 || state.localModels.isNotEmpty()) showServerMenu = true
-                else showModelMenu = true
+                if (!state.useLocalModel && state.availableModels.isNotEmpty()) showModelMenu = true
+                else showServerMenu = true
             },
             modifier = Modifier.semantics { contentDescription = "Switch server or model" },
         ) {
@@ -484,10 +484,20 @@ private fun ServerModelSelector(
         DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
             state.availableModels.forEach { model ->
                 DropdownMenuItem(
-                    text = { Text(model.id) },
+                    text = { Text(model.id.substringAfterLast("/").ifBlank { model.id }) },
                     onClick = {
                         showModelMenu = false
                         onSwitchModel(model.id)
+                    },
+                )
+            }
+            if (state.localModels.isNotEmpty() || state.availableServers.size > 1) {
+                androidx.compose.material3.HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Switch source\u2026") },
+                    onClick = {
+                        showModelMenu = false
+                        showServerMenu = true
                     },
                 )
             }

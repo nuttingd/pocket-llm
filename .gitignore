@@ -13,3 +13,6 @@ keystore.properties
 *.jks
 *.keystore
 node_modules/
+/llm/build
+gradle/gradle-daemon-jvm.properties
+.kotlin/
