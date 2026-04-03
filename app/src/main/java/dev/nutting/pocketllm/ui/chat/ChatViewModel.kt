@@ -710,9 +710,9 @@ class ChatViewModel(
             val localContextWindowSize = if (state.useLocalModel) {
                 localModelStore?.getById(modelId)?.contextWindowSize
             } else null
-            Log.d(TAG, "Starting compaction for conversation=$conversationId, server=$serverId, model=$modelId")
+            Log.d(TAG, "Starting compaction for conversation=${conversationId.take(8)}, model=$modelId")
             val summary = chatManager.compactConversation(conversationId, serverId, modelId, localContextWindowSize)
-            Log.d(TAG, "Compaction result: ${if (summary != null) "success (${summary.take(50)}...)" else "null"}")
+            Log.d(TAG, "Compaction result: ${if (summary != null) "success (${summary.length} chars)" else "null"}")
             Log.d(TAG, "Current summaries in state: ${_uiState.value.compactionSummaries.size}")
             _uiState.update { it.copy(isCompacting = false) }
             if (summary != null) {
