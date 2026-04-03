@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -99,9 +100,19 @@ fun ChatScreen(
         }
     }
 
-    // Scroll to bottom on discrete events (new messages, streaming/compacting state changes).
-    LaunchedEffect(state.messages.size, state.isStreaming, state.isCompacting) {
-        listState.animateScrollToItem(0)
+    // True when the user has not scrolled away from the most recent message.
+    val isAtBottom = remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    // Scroll to bottom when a new message arrives, but only if the user is already at the bottom.
+    LaunchedEffect(state.messages.size) {
+        if (isAtBottom.value) {
+            listState.animateScrollToItem(0)
+        }
+    }
+    // Always scroll to bottom when streaming begins (user just sent a message).
+    LaunchedEffect(state.isStreaming) {
+        if (state.isStreaming) {
+            listState.scrollToItem(0)
+        }
     }
     // Keep pinned to bottom while streaming content grows (instant scroll, no animation fighting).
     val streamingContentLength = state.currentStreamingContent.length
