@@ -123,7 +123,18 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.1.0")
 
     // WorkManager (background model downloads)
-    implementation("androidx.work:work-runtime-ktx:2.10.1")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // PDFBox for PDF text extraction
+    implementation("org.apache.pdfbox:pdfbox:2.0.35") {
+        exclude(group = "commons-logging", module = "commons-logging")
+    }
+
+    // docx4j for DOCX text extraction  
+    implementation("org.docx4j:docx4j:6.1.2") {
+        exclude(group = "com.google.guava")
+        exclude(group = "commons-logging")
+    }
 
     // OkHttp (model file downloads)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
