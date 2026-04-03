@@ -127,7 +127,7 @@ class LocalLlmClient(
     ): Flow<ChatCompletionChunk> = channelFlow {
         val messagesJson = buildMessagesJson(messages)
 
-        // Collect streaming progress from the engine
+        // Collect streaming progress from the engine — only delta tokens, no terminal chunk here.
         val progressJob = launch {
             llmEngine.progress.collect { progress ->
                 if (progress.tokenText.isNotEmpty() && progress.phase != "complete") {
@@ -146,20 +146,6 @@ class LocalLlmClient(
                     )
                     send(chunk)
                 }
-                if (progress.phase == "complete") {
-                    val finalChunk = ChatCompletionChunk(
-                        id = "local",
-                        model = loadedModelId ?: "local",
-                        choices = listOf(
-                            dev.nutting.pocketllm.data.remote.model.ChunkChoice(
-                                index = 0,
-                                delta = dev.nutting.pocketllm.data.remote.model.Delta(),
-                                finishReason = "stop",
-                            )
-                        ),
-                    )
-                    send(finalChunk)
-                }
             }
         }
 
@@ -174,8 +160,25 @@ class LocalLlmClient(
         progressJob.cancel()
 
         if (result.startsWith("ERROR: ")) {
-            throw RuntimeException(result.removePrefix("ERROR: "))
+            val message = result.removePrefix("ERROR: ")
+            android.util.Log.e("LocalLlmClient", "Local inference error: $message")
+            throw RuntimeException(message)
         }
+
+        // Emit the terminal chunk only after confirming inference completed without error.
+        send(
+            ChatCompletionChunk(
+                id = "local",
+                model = loadedModelId ?: "local",
+                choices = listOf(
+                    dev.nutting.pocketllm.data.remote.model.ChunkChoice(
+                        index = 0,
+                        delta = dev.nutting.pocketllm.data.remote.model.Delta(),
+                        finishReason = "stop",
+                    )
+                ),
+            )
+        )
     }
 
     fun cancel() {
