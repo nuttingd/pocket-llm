@@ -516,42 +516,29 @@ class ChatManager(
     ): List<ChatMessage> {
         val newText = newMessages.joinToString("\n") { "${it.role}: ${it.content}" }
 
-        return if (priorSummary != null) {
-            listOf(
-                ChatMessage(
-                    role = "system",
-                    content = ChatContent.Text(
-                        "You have an existing summary of an earlier portion of a conversation. New messages have occurred since that summary. " +
-                        "Produce an updated summary that integrates BOTH the existing summary AND the new messages. " +
-                        "Cover every topic, key fact, decision, and piece of content. Organize chronologically. " +
-                        "The summary must preserve enough context to continue the conversation coherently. " +
-                        "Respond with only the updated summary, no preamble."
-                    ),
-                ),
-                ChatMessage(
-                    role = "user",
-                    content = ChatContent.Text(
-                        "EXISTING SUMMARY:\n$priorSummary\n\nNEW MESSAGES:\n$newText"
-                    ),
-                ),
-            )
+        val systemPrompt = if (priorSummary != null) {
+            "You have an existing summary of an earlier portion of a conversation. New messages have occurred since that summary. " +
+            "Produce an updated summary that integrates BOTH the existing summary AND the new messages. " +
+            "Cover every topic, key fact, decision, and piece of content. Organize chronologically. " +
+            "The summary must preserve enough context to continue the conversation coherently. " +
+            "Respond with only the updated summary, no preamble."
         } else {
-            listOf(
-                ChatMessage(
-                    role = "system",
-                    content = ChatContent.Text(
-                        "Summarize the ENTIRE following conversation from beginning to end. " +
-                        "Cover every topic, key fact, decision, and piece of content discussed — do not focus only on recent messages. " +
-                        "Organize chronologically. The summary must preserve enough context to continue the conversation coherently. " +
-                        "Respond with only the summary, no preamble."
-                    ),
-                ),
-                ChatMessage(
-                    role = "user",
-                    content = ChatContent.Text(newText),
-                ),
-            )
+            "Summarize the ENTIRE following conversation from beginning to end. " +
+            "Cover every topic, key fact, decision, and piece of content discussed — do not focus only on recent messages. " +
+            "Organize chronologically. The summary must preserve enough context to continue the conversation coherently. " +
+            "Respond with only the summary, no preamble."
         }
+
+        val userContent = if (priorSummary != null) {
+            "EXISTING SUMMARY:\n$priorSummary\n\nNEW MESSAGES:\n$newText"
+        } else {
+            newText
+        }
+
+        return listOf(
+            ChatMessage(role = "system", content = ChatContent.Text(systemPrompt)),
+            ChatMessage(role = "user", content = ChatContent.Text(userContent)),
+        )
     }
 
     private suspend fun tryCompactMessages(
