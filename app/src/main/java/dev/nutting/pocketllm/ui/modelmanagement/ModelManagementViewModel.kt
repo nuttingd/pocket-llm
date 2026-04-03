@@ -141,6 +141,19 @@ class ModelManagementViewModel(
         _uiState.update { it.copy(showCellularWarning = false, pendingDownloadEntry = null) }
     }
 
+    private fun buildDownloadWorkRequest(entry: ModelRegistryEntry) =
+        OneTimeWorkRequestBuilder<ModelDownloadWorker>()
+            .setInputData(workDataOf(
+                ModelDownloadWorker.KEY_MODEL_ID to entry.id,
+                ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
+                ModelDownloadWorker.KEY_MODEL_FILENAME to entry.modelFileName,
+                ModelDownloadWorker.KEY_TOTAL_SIZE to entry.totalSizeBytes,
+                ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
+                ModelDownloadWorker.KEY_PROJECTOR_FILENAME to entry.projectorFileName,
+                ModelDownloadWorker.KEY_PROJECTOR_SIZE to entry.projectorSizeBytes,
+            ))
+            .build()
+
     private fun startDownload(entry: ModelRegistryEntry) {
         viewModelScope.launch {
             // Create model entry in store
@@ -161,21 +174,8 @@ class ModelManagementViewModel(
             )
             localModelStore.save(model)
 
-            // Enqueue WorkManager job
-            val workRequest = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
-                .setInputData(workDataOf(
-                    ModelDownloadWorker.KEY_MODEL_ID to entry.id,
-                    ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
-                    ModelDownloadWorker.KEY_MODEL_FILENAME to entry.modelFileName,
-                    ModelDownloadWorker.KEY_TOTAL_SIZE to entry.totalSizeBytes,
-                    ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
-                    ModelDownloadWorker.KEY_PROJECTOR_FILENAME to entry.projectorFileName,
-                    ModelDownloadWorker.KEY_PROJECTOR_SIZE to entry.projectorSizeBytes,
-                ))
-                .build()
-
             WorkManager.getInstance(appContext)
-                .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.KEEP, workRequest)
+                .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.KEEP, buildDownloadWorkRequest(entry))
 
             Log.i(TAG, "Download enqueued for ${entry.id}")
         }
@@ -216,20 +216,8 @@ class ModelManagementViewModel(
             if (entry != null) {
                 localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, model.downloadedBytes)
 
-                val workRequest = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
-                    .setInputData(workDataOf(
-                        ModelDownloadWorker.KEY_MODEL_ID to entry.id,
-                        ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
-                        ModelDownloadWorker.KEY_MODEL_FILENAME to entry.modelFileName,
-                        ModelDownloadWorker.KEY_TOTAL_SIZE to entry.totalSizeBytes,
-                        ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
-                        ModelDownloadWorker.KEY_PROJECTOR_FILENAME to entry.projectorFileName,
-                        ModelDownloadWorker.KEY_PROJECTOR_SIZE to entry.projectorSizeBytes,
-                    ))
-                    .build()
-
                 WorkManager.getInstance(appContext)
-                    .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.REPLACE, workRequest)
+                    .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.REPLACE, buildDownloadWorkRequest(entry))
 
                 Log.i(TAG, "Retry enqueued for $modelId")
             } else {
