@@ -264,6 +264,8 @@ static size_t utf8_complete_length(const char *s, size_t len) {
     else if ((lead & 0xF8) == 0xF0) expected = 4;
     else return i - 1; // invalid lead byte — skip it
     int actual = static_cast<int>(len - (i - 1));
+    // If all expected bytes are present the buffer ends on a complete boundary; return full length.
+    // Otherwise truncate before the incomplete lead byte (position i-1) so callers never split a character.
     return actual >= expected ? len : i - 1;
 }
 
