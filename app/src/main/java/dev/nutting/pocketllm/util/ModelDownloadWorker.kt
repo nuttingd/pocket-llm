@@ -59,7 +59,8 @@ class ModelDownloadWorker(
         val projectorUrl = inputData.getString(KEY_PROJECTOR_URL)
         val projectorFilename = inputData.getString(KEY_PROJECTOR_FILENAME)
         val totalSize = inputData.getLong(KEY_TOTAL_SIZE, 0L)
-        val modelSizeBytes = totalSize - inputData.getLong(KEY_PROJECTOR_SIZE, 0L)
+        val projectorSizeBytes = inputData.getLong(KEY_PROJECTOR_SIZE, 0L)
+        val modelSizeBytes = totalSize - projectorSizeBytes
 
         val container = (applicationContext as PocketLlmApplication).container
         val localModelStore = container.localModelStore
@@ -96,7 +97,7 @@ class ModelDownloadWorker(
                 val projectorFile = File(modelsDir, projectorFilename!!)
 
                 downloader.download(projectorUrl!!, projectorFile).collect { progress ->
-                    val combinedBytes = modelSizeBytes + progress.bytesDownloaded
+                    val combinedBytes = (modelSizeBytes + progress.bytesDownloaded).coerceAtMost(totalSize)
                     localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, combinedBytes)
                     setForeground(createForegroundInfo("Downloading projector...", combinedBytes, totalSize))
                     setProgress(workDataOf(
