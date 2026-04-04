@@ -22,6 +22,7 @@ import dev.nutting.pocketllm.ui.server.ServerConfigScreen
 import dev.nutting.pocketllm.ui.server.ServerConfigViewModel
 import dev.nutting.pocketllm.ui.settings.SettingsScreen
 import dev.nutting.pocketllm.ui.settings.SettingsViewModel
+import dev.nutting.pocketllm.ui.setup.SetupScreen
 
 @Composable
 fun AppNavGraph(
@@ -77,7 +78,7 @@ fun AppNavGraph(
                 conversationListViewModel = conversationListViewModel,
                 onNavigateToServers = { navController.navigate(ServerConfig) },
                 onNavigateToSettings = { navController.navigate(Settings) },
-                onNavigateToModels = { navController.navigate(ModelManagement) },
+                onNavigateToSetup = { navController.navigate(Setup) },
                 onConversationSelected = { id ->
                     if (id != null) {
                         navController.navigate(Chat(conversationId = id)) {
@@ -112,7 +113,7 @@ fun AppNavGraph(
                 conversationListViewModel = conversationListViewModel,
                 onNavigateToServers = { navController.navigate(ServerConfig) },
                 onNavigateToSettings = { navController.navigate(Settings) },
-                onNavigateToModels = { navController.navigate(ModelManagement) },
+                onNavigateToSetup = { navController.navigate(Setup) },
                 onConversationSelected = { id ->
                     if (id != null) {
                         navController.navigate(Chat(conversationId = id)) {
@@ -163,6 +164,21 @@ fun AppNavGraph(
                 viewModel = settingsViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToServers = { navController.navigate(ServerConfig) },
+                onNavigateToModels = { navController.navigate(ModelManagement) },
+            )
+        }
+        composable<Setup> {
+            SetupScreen(
+                onChooseLocal = {
+                    navController.navigate(ModelManagement) {
+                        popUpTo<Setup> { inclusive = true }
+                    }
+                },
+                onChooseServer = {
+                    navController.navigate(ServerConfig) {
+                        popUpTo<Setup> { inclusive = true }
+                    }
+                },
             )
         }
         composable<ModelManagement> {

@@ -72,7 +72,9 @@ internal suspend fun <T> retryWithBackoff(
     throw lastException!!
 }
 
-class OpenAiApiClient {
+class OpenAiApiClient(
+    internal val testClientFactory: ((Long) -> HttpClient)? = null,
+) {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -86,17 +88,18 @@ class OpenAiApiClient {
         private const val INITIAL_BACKOFF_MS = 1000L
     }
 
-    private fun createClient(timeoutSeconds: Long): HttpClient = HttpClient(OkHttp) {
-        install(ContentNegotiation) {
-            json(this@OpenAiApiClient.json)
+    private fun createClient(timeoutSeconds: Long): HttpClient =
+        testClientFactory?.invoke(timeoutSeconds) ?: HttpClient(OkHttp) {
+            install(ContentNegotiation) {
+                json(this@OpenAiApiClient.json)
+            }
+            install(HttpTimeout) {
+                val millis = timeoutSeconds * 1000
+                requestTimeoutMillis = millis
+                connectTimeoutMillis = millis
+                socketTimeoutMillis = millis
+            }
         }
-        install(HttpTimeout) {
-            val millis = timeoutSeconds * 1000
-            requestTimeoutMillis = millis
-            connectTimeoutMillis = millis
-            socketTimeoutMillis = millis
-        }
-    }
 
     internal suspend fun <T> withRetry(block: suspend () -> T): T =
         retryWithBackoff(MAX_RETRIES, INITIAL_BACKOFF_MS, block)
