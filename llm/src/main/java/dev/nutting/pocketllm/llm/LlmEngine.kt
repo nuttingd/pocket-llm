@@ -3,6 +3,7 @@ package dev.nutting.pocketllm.llm
 import android.os.Build
 import android.util.Log
 import java.util.zip.ZipFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,6 +84,7 @@ class LlmEngine {
         Log.i(TAG, "Devices: $deviceInfo")
     }
 
+    /** Loads a model. Throws [ModelLoadException] with a user-facing reason if it can't be loaded. */
     suspend fun loadModel(modelPath: String, projectorPath: String = "", nThreads: Int = 0, gpuOffloadPercent: Int = 100, contextSize: Int = 2048) {
         // If a previous inference crashed, clean up the poisoned state first
         if (_state.value is State.Error) {
@@ -97,25 +99,25 @@ class LlmEngine {
             val result = withContext(Dispatchers.Default) {
                 nativeLoadModel(modelPath, projectorPath, nThreads, gpuOffloadPercent, contextSize)
             }
-            if (result == 0) {
-                deviceInfo = nativeDeviceInfo()
-                Log.i(TAG, "Devices: $deviceInfo")
-                _state.value = State.Ready
-                Log.i(TAG, "Model loaded in ${System.currentTimeMillis() - loadStart} ms")
-            } else {
-                val msg = when (result) {
-                    -1 -> "Native state corrupted — please restart the app"
-                    1 -> "Failed to load model"
-                    2 -> "Failed to create context"
-                    3 -> "Failed to load vision projector"
-                    else -> "Unknown load error: $result"
-                }
+            if (result != 0) {
+                val msg = ModelLoadException.describe(result, nativeLastLoadError(), contextSize)
                 _state.value = State.Error(msg)
-                Log.e(TAG, msg)
+                Log.e(TAG, "Model load failed (code $result): $msg")
+                throw ModelLoadException(msg)
             }
+            deviceInfo = nativeDeviceInfo()
+            Log.i(TAG, "Devices: $deviceInfo")
+            _state.value = State.Ready
+            Log.i(TAG, "Model loaded in ${System.currentTimeMillis() - loadStart} ms")
+        } catch (e: ModelLoadException) {
+            throw e
+        } catch (e: CancellationException) {
+            _state.value = State.Unloaded
+            throw e
         } catch (e: Exception) {
             _state.value = State.Error(e.message ?: "Load failed")
             Log.e(TAG, "Exception during model load", e)
+            throw ModelLoadException(e.message ?: "Model failed to load")
         } finally {
             _status.value = null
         }
@@ -187,6 +189,7 @@ class LlmEngine {
     external fun nativePerfInfo(): String
     external fun nativeModelName(): String
     private external fun nativeInit(backendPaths: Array<String>)
+    private external fun nativeLastLoadError(): String
     private external fun nativeLoadModel(modelPath: String, projectorPath: String, nThreads: Int, gpuOffloadPercent: Int, contextSize: Int): Int
     private external fun nativeInferChat(messagesJson: String, images: Array<ByteArray>, maxTokens: Int, temperature: Float, topP: Float, topK: Int, minP: Float, repeatPenalty: Float): String
     private external fun nativeCancel()

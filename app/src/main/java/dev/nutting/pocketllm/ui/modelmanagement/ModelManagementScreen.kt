@@ -50,12 +50,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.nutting.pocketllm.data.local.model.DownloadStatus
 import dev.nutting.pocketllm.data.local.model.LocalModel
 import dev.nutting.pocketllm.data.local.model.ModelRegistryEntry
-import dev.nutting.pocketllm.llm.LlmEngine
+import dev.nutting.pocketllm.domain.LocalModelState
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -153,7 +154,7 @@ fun ModelManagementScreen(
                     Spacer(Modifier.width(4.dp))
                     Text("Import GGUF")
                 }
-                if (state.engineState is LlmEngine.State.Ready || state.engineState is LlmEngine.State.Inferring) {
+                if (state.localModelState is LocalModelState.Loaded || state.localModelState is LocalModelState.Loading) {
                     OutlinedButton(
                         onClick = { viewModel.unloadModel() },
                         modifier = Modifier.weight(1f),
@@ -182,7 +183,13 @@ fun ModelManagementScreen(
                     DownloadedModelCard(
                         model = model,
                         isActive = model.id == state.activeModelId,
+                        loadText = modelLoadText(model.id, state.localModelState),
+                        canLoad = state.localModelState.let {
+                            !(it is LocalModelState.Loaded && it.modelId == model.id) &&
+                                !(it is LocalModelState.Loading)
+                        },
                         onSelect = { viewModel.selectModel(model.id) },
+                        onLoad = { viewModel.loadModel(model.id) },
                         onDelete = { deleteConfirmModelId = model.id },
                     )
                 }
@@ -237,14 +244,14 @@ private fun EngineStatusCard(state: ModelManagementUiState) {
                 Text("Engine Status", style = MaterialTheme.typography.titleSmall)
             }
             Spacer(Modifier.height(8.dp))
-            val statusText = when (state.engineState) {
-                is LlmEngine.State.Unloaded -> "No model loaded"
-                is LlmEngine.State.Loading -> "Loading model..."
-                is LlmEngine.State.Ready -> "Ready"
-                is LlmEngine.State.Inferring -> "Generating..."
-                is LlmEngine.State.Error -> "Error: ${(state.engineState as LlmEngine.State.Error).message}"
+            val names = state.downloadedModels.associate { it.id to it.name }
+            engineStatusText(state.localModelState, state.engineState) { names[it] ?: it }.forEach { line ->
+                Text(
+                    line.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (line.isError) MaterialTheme.colorScheme.error else Color.Unspecified,
+                )
             }
-            Text(statusText, style = MaterialTheme.typography.bodyMedium)
             if (state.deviceInfo.isNotBlank()) {
                 Text(state.deviceInfo, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -273,7 +280,10 @@ private fun GpuOffloadCard(gpuPercent: Int, onUpdate: (Int) -> Unit) {
 private fun DownloadedModelCard(
     model: LocalModel,
     isActive: Boolean,
+    loadText: LoadText?,
+    canLoad: Boolean,
     onSelect: () -> Unit,
+    onLoad: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -295,8 +305,20 @@ private fun DownloadedModelCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (loadText != null) {
+                        Text(
+                            loadText.text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (loadText.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isActive && canLoad) {
+                        TextButton(onClick = onLoad) {
+                            Text("Load")
+                        }
+                    }
                     if (isActive) {
                         Icon(
                             Icons.Default.CheckCircle,

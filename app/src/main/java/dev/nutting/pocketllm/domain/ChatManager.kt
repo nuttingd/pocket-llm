@@ -59,6 +59,10 @@ class ChatManager(
     /** On-device engine progress (model load, image encoding, prompt processing, generation). */
     val localStatus: StateFlow<InferenceStatus?> = localLlmClient?.status ?: MutableStateFlow(null)
 
+    /** Which on-device model is in memory. */
+    val localModelState: StateFlow<LocalModelState> =
+        localLlmClient?.modelState ?: MutableStateFlow(LocalModelState.NotLoaded)
+
     companion object {
         private const val TAG = "ChatManager"
     }

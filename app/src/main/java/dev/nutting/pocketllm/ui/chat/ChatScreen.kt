@@ -66,6 +66,9 @@ import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
 import dev.nutting.pocketllm.llm.InferenceStatus
 import kotlinx.coroutines.launch
 import java.util.Locale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -506,14 +509,25 @@ private fun ServerModelSelector(
             },
             modifier = Modifier.semantics { contentDescription = "Switch server or model" },
         ) {
-            if (state.isLoadingModels) {
+            val localLabel = if (state.useLocalModel) localModelLabel(state.localModelState, state.selectedModelId) else null
+            if (state.isLoadingModels || localLabel?.isBusy == true) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(12.dp).padding(end = 4.dp),
                     strokeWidth = 1.5.dp,
                 )
             }
             Text(
-                "$serverName · $modelName",
+                buildAnnotatedString {
+                    append("$serverName · $modelName")
+                    if (localLabel != null) {
+                        append(" · ")
+                        if (localLabel.isError) {
+                            withStyle(SpanStyle(color = MaterialTheme.colorScheme.error)) { append(localLabel.text) }
+                        } else {
+                            append(localLabel.text)
+                        }
+                    }
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

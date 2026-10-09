@@ -39,6 +39,23 @@ static std::mutex g_engine_mutex;
 // What the KV cache holds for sequence 0; reused across requests (see prompt_cache.h)
 static PromptCache g_cache;
 
+// First error llama.cpp logged since the last reset; explains why a model load failed
+// (e.g. "unknown model architecture"). Log callbacks can come from any thread.
+static std::mutex g_load_error_mutex;
+static std::string g_load_error;
+
+static void record_log_error(const char *text) {
+    std::lock_guard<std::mutex> lock(g_load_error_mutex);
+    if (!g_load_error.empty() || !text) return;
+    g_load_error = text;
+    while (!g_load_error.empty() && (g_load_error.back() == '\n' || g_load_error.back() == ' ')) g_load_error.pop_back();
+}
+
+static void reset_log_error() {
+    std::lock_guard<std::mutex> lock(g_load_error_mutex);
+    g_load_error.clear();
+}
+
 // ---- Signal handler guard ----
 static thread_local sigjmp_buf  g_jmp_buf;
 static thread_local bool        g_in_guarded_section = false;
@@ -99,7 +116,10 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInit(JNIEnv *env, jobject, jobjec
 
     llama_log_set([](enum ggml_log_level level, const char *text, void *) {
         switch (level) {
-            case GGML_LOG_LEVEL_ERROR: __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "%s", text); break;
+            case GGML_LOG_LEVEL_ERROR:
+                __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "%s", text);
+                record_log_error(text);
+                break;
             case GGML_LOG_LEVEL_WARN:  __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, "%s", text); break;
             case GGML_LOG_LEVEL_INFO:  __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, "%s", text); break;
             default:                   __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "%s", text); break;
@@ -158,6 +178,7 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     }
 
     std::lock_guard<std::mutex> lock(g_engine_mutex);
+    reset_log_error();
 
     const auto *model_path = env->GetStringUTFChars(jModelPath, nullptr);
     const auto *proj_path  = env->GetStringUTFChars(jProjectorPath, nullptr);
@@ -250,6 +271,14 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     env->ReleaseStringUTFChars(jProjectorPath, proj_path);
     LOGi("Model loaded successfully (threads=%d, ctx=%d)", threads, ctx_size);
     return 0;
+}
+
+// First llama.cpp error logged during the last model load, or "" if none
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLastLoadError(JNIEnv *env, jobject) {
+    std::lock_guard<std::mutex> lock(g_load_error_mutex);
+    return env->NewStringUTF(g_load_error.c_str());
 }
 
 // ---- Chat Inference ----

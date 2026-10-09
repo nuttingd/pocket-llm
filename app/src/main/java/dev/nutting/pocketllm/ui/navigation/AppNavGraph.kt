@@ -189,6 +189,7 @@ fun AppNavGraph(
                     localModelStore = container.localModelStore,
                     downloadManager = container.modelDownloadManager,
                     llmEngine = container.llmEngine,
+                    localLlmClient = container.localLlmClient,
                     modelsDir = container.modelsDir,
                     appContext = context.applicationContext as android.app.Application,
                 )
