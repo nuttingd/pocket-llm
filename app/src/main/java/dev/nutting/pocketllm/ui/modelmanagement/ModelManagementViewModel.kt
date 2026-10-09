@@ -10,9 +10,12 @@ import dev.nutting.pocketllm.data.local.model.LocalModel
 import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.data.local.model.ModelRegistry
 import dev.nutting.pocketllm.data.local.model.ModelRegistryEntry
+import dev.nutting.pocketllm.domain.LocalLlmClient
+import dev.nutting.pocketllm.domain.LocalModelState
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
 import dev.nutting.pocketllm.util.deviceTotalRamMb
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +31,7 @@ data class ModelManagementUiState(
     val activeModelId: String? = null,
     val gpuOffloadPercent: Int = 80,
     val engineState: LlmEngine.State = LlmEngine.State.Unloaded,
+    val localModelState: LocalModelState = LocalModelState.NotLoaded,
     val deviceInfo: String = "",
     val errorMessage: String? = null,
     val showCellularWarning: Boolean = false,
@@ -38,6 +42,7 @@ class ModelManagementViewModel(
     private val localModelStore: LocalModelStore,
     private val downloadManager: ModelDownloadManager,
     private val llmEngine: LlmEngine,
+    private val localLlmClient: LocalLlmClient,
     private val modelsDir: File,
     private val appContext: Application,
 ) : ViewModel() {
@@ -91,6 +96,11 @@ class ModelManagementViewModel(
 
     private fun observeEngineState() {
         viewModelScope.launch {
+            localLlmClient.modelState.collect { modelState ->
+                _uiState.update { it.copy(localModelState = modelState) }
+            }
+        }
+        viewModelScope.launch {
             llmEngine.state.collect { state ->
                 _uiState.update {
                     it.copy(
@@ -138,6 +148,9 @@ class ModelManagementViewModel(
 
     fun deleteModel(modelId: String) {
         viewModelScope.launch {
+            if (localLlmClient.modelState.value.let { it is LocalModelState.Loaded && it.modelId == modelId }) {
+                localLlmClient.releaseMemory(cancelInFlight = true)
+            }
             val model = localModelStore.getById(modelId)
             if (model != null) {
                 File(modelsDir, model.modelFileName).let { if (it.exists()) it.delete() }
@@ -175,8 +188,23 @@ class ModelManagementViewModel(
         }
     }
 
+    /** Frees the loaded model in the background, stopping a reply in progress. */
     fun unloadModel() {
-        llmEngine.unload()
+        localLlmClient.releaseMemory(cancelInFlight = true)
+    }
+
+    /** Makes [modelId] the active model and loads it now, reporting why if it can't be loaded. */
+    fun loadModel(modelId: String) {
+        viewModelScope.launch {
+            localModelStore.setActiveModelId(modelId)
+            try {
+                localLlmClient.ensureModelLoaded(modelId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Model failed to load") }
+            }
+        }
     }
 
     fun importModel(uri: Uri) {

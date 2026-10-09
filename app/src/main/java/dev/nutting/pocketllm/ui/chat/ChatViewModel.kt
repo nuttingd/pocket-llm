@@ -135,6 +135,11 @@ class ChatViewModel(
             }
         }
         viewModelScope.launch {
+            chatManager.localModelState.collect { modelState ->
+                _uiState.update { it.copy(localModelState = modelState) }
+            }
+        }
+        viewModelScope.launch {
             localModelStore?.models?.collect { models ->
                 val completed = models.filter { it.downloadStatus == DownloadStatus.COMPLETE }
                 _uiState.update { it.copy(localModels = completed) }

@@ -10,15 +10,21 @@ import dev.nutting.pocketllm.data.remote.model.ContentPart
 import dev.nutting.pocketllm.data.remote.model.Delta
 import dev.nutting.pocketllm.llm.InferenceStatus
 import dev.nutting.pocketllm.llm.LlmEngine
+import dev.nutting.pocketllm.llm.ModelLoadException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -110,7 +116,17 @@ class LocalLlmClient(
     private var loadedHasProjector = false
     private var initialized = false
 
-    suspend fun ensureModelLoaded(modelId: String) {
+    private val _modelState = MutableStateFlow<LocalModelState>(LocalModelState.NotLoaded)
+
+    /** Which model is in memory (or loading / failed to load). */
+    val modelState: StateFlow<LocalModelState> = _modelState.asStateFlow()
+
+    private val loadMutex = Mutex()
+
+    /** Loads [modelId] unless it's already loaded with current settings. Throws with a user-facing reason. */
+    suspend fun ensureModelLoaded(modelId: String) = loadMutex.withLock { ensureModelLoadedLocked(modelId) }
+
+    private suspend fun ensureModelLoadedLocked(modelId: String) {
         val model = localModelStore.getById(modelId)
             ?: throw IllegalStateException("Local model not found: $modelId")
 
@@ -125,26 +141,42 @@ class LocalLlmClient(
         if (llmEngine.isReady()) {
             llmEngine.unload()
         }
+        loadedModelId = null
+        _modelState.value = LocalModelState.Loading(modelId)
 
-        if (!initialized) {
-            llmEngine.init(apkPath)
-            initialized = true
+        try {
+            val modelFile = File(modelsDir, model.modelFileName)
+            if (!modelFile.isFile) {
+                throw ModelLoadException("The model file is missing. Delete the model and download it again.")
+            }
+            val projectorFile = model.projectorFileName.takeIf { it.isNotEmpty() }?.let { File(modelsDir, it) }
+            if (projectorFile != null && !projectorFile.isFile) {
+                throw ModelLoadException("The vision projector file is missing. Delete the model and download it again.")
+            }
+
+            if (!initialized) {
+                llmEngine.init(apkPath)
+                initialized = true
+            }
+
+            Log.i(TAG, "Loading local model: ${modelFile.path} (GPU: $gpuPercent%, ctx: ${model.contextWindowSize})")
+            llmEngine.loadModel(
+                modelFile.absolutePath,
+                projectorPath = projectorFile?.absolutePath ?: "",
+                gpuOffloadPercent = gpuPercent,
+                contextSize = model.contextWindowSize,
+            )
+            loadedModelId = modelId
+            loadedGpuPercent = gpuPercent
+            loadedHasProjector = projectorFile != null
+            _modelState.value = LocalModelState.Loaded(modelId)
+        } catch (e: ModelLoadException) {
+            _modelState.value = LocalModelState.Failed(modelId, e.message ?: "Model failed to load")
+            throw ModelLoadException("Couldn't load ${model.name}: ${e.message}")
+        } catch (e: CancellationException) {
+            _modelState.value = LocalModelState.NotLoaded
+            throw e
         }
-
-        val modelPath = File(modelsDir, model.modelFileName).absolutePath
-        val projectorPath = if (model.projectorFileName.isNotEmpty()) {
-            File(modelsDir, model.projectorFileName).absolutePath
-        } else ""
-        Log.i(TAG, "Loading local model: $modelPath (GPU: $gpuPercent%, ctx: ${model.contextWindowSize})")
-        llmEngine.loadModel(
-            modelPath,
-            projectorPath = projectorPath,
-            gpuOffloadPercent = gpuPercent,
-            contextSize = model.contextWindowSize,
-        )
-        loadedModelId = modelId
-        loadedGpuPercent = gpuPercent
-        loadedHasProjector = projectorPath.isNotEmpty()
     }
 
     fun getLoadedModelName(): String? {
@@ -208,6 +240,13 @@ class LocalLlmClient(
                 topP = topP ?: 0.95f,
                 onToken = { tokens.trySend(it) },
             )
+        } catch (e: Exception) {
+            // A native crash poisons the engine; the model has to be reloaded before the next request
+            if (llmEngine.state.value is LlmEngine.State.Error) {
+                loadedModelId = null
+                _modelState.value = LocalModelState.NotLoaded
+            }
+            throw e
         } finally {
             tokens.close()
         }
@@ -251,6 +290,7 @@ class LocalLlmClient(
 
     fun unload() {
         llmEngine.unload()
+        _modelState.value = LocalModelState.NotLoaded
         loadedModelId = null
         loadedGpuPercent = -1
         loadedHasProjector = false
