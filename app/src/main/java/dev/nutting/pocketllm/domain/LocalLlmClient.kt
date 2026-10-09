@@ -39,17 +39,25 @@ class LocalLlmClient(
         internal class LocalPrompt(val messagesJson: String, val images: List<ByteArray>)
 
         /**
-         * Flattens chat messages for the native engine. With [visionEnabled], each image part in the latest
-         * user message becomes a media marker and its bytes are collected in order; all other images are
-         * replaced by "[image]".
+         * Most images sent to the model per request. Each one is re-encoded every turn and costs up to
+         * ~512 context tokens, so older images beyond this are replaced by "[image]".
+         */
+        internal const val MAX_IMAGES = 2
+
+        /**
+         * Flattens chat messages for the native engine. With [visionEnabled], the last [MAX_IMAGES] image
+         * parts in the conversation become media markers and their bytes are collected in order; all
+         * other images are replaced by "[image]".
          */
         internal fun buildPrompt(messages: List<ChatMessage>, visionEnabled: Boolean): LocalPrompt {
             val images = mutableListOf<ByteArray>()
-            // Only the latest user turn's images are encoded; re-encoding every earlier image on each turn
-            // is slow on-device and quickly fills the context window
-            val visionIndex = if (visionEnabled) messages.indexOfLast { it.role == "user" } else -1
+            val totalImages = messages.sumOf { msg ->
+                (msg.content as? ChatContent.Parts)?.parts?.count { it is ContentPart.ImagePart } ?: 0
+            }
+            val firstSentImage = if (visionEnabled) (totalImages - MAX_IMAGES).coerceAtLeast(0) else Int.MAX_VALUE
+            var imageOrdinal = 0
             val json = buildJsonArray {
-                for ((index, msg) in messages.withIndex()) {
+                for (msg in messages) {
                     add(buildJsonObject {
                         put("role", msg.role)
                         put("content", when (val content = msg.content) {
@@ -58,7 +66,8 @@ class LocalLlmClient(
                                 when (part) {
                                     is ContentPart.TextPart -> part.text
                                     is ContentPart.ImagePart -> {
-                                        val bytes = if (index == visionIndex) decodeDataUrl(part.imageUrl.url) else null
+                                        val send = imageOrdinal++ >= firstSentImage
+                                        val bytes = if (send) decodeDataUrl(part.imageUrl.url) else null
                                         if (bytes != null) {
                                             images += bytes
                                             LlmEngine.MEDIA_MARKER
