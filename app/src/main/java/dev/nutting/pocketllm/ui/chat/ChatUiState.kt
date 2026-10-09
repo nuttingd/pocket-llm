@@ -8,6 +8,7 @@ import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 import dev.nutting.pocketllm.data.local.model.LocalModel
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
 import dev.nutting.pocketllm.data.remote.model.ToolCall
+import dev.nutting.pocketllm.llm.InferenceStatus
 
 data class ChatUiState(
     val messages: List<MessageEntity> = emptyList(),
@@ -40,4 +41,8 @@ data class ChatUiState(
     val useLocalModel: Boolean = false,
     val localModels: List<LocalModel> = emptyList(),
     val activeLocalModelId: String? = null,
+    /** What the on-device engine is doing for the pending reply; null when idle or using a server. */
+    val localStatus: InferenceStatus? = null,
+    /** When the pending reply was requested (epoch ms), for showing elapsed time. */
+    val streamStartedAtMs: Long? = null,
 )

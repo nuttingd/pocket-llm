@@ -30,8 +30,10 @@ import androidx.compose.ui.unit.dp
 fun ThinkingSection(
     thinkingContent: String,
     modifier: Modifier = Modifier,
+    title: String = "Thinking",
+    initiallyExpanded: Boolean = false,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -50,7 +52,7 @@ fun ThinkingSection(
                     },
             ) {
                 Text(
-                    "Thinking",
+                    title,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),

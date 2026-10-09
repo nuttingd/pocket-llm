@@ -13,6 +13,7 @@
 #include "mtmd-helper.h"
 
 #include <atomic>
+#include <functional>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -123,12 +124,24 @@ struct EvalStats {
     bool   full_reset = false; // partial KV removal unsupported; cache was cleared
 };
 
+// Progress of a prompt evaluation, in KV tokens. Reported before each image is encoded and after each
+// batch or image is evaluated.
+struct EvalProgress {
+    size_t done_tokens = 0;    // tokens evaluated so far this call
+    size_t total_tokens = 0;   // tokens to evaluate this call (excludes reused)
+    size_t reused_tokens = 0;  // tokens taken from the cache
+    int    image_index = 0;    // 1-based index of the image being encoded, 0 if none
+    int    image_count = 0;    // images to encode this call
+};
+using EvalProgressFn = std::function<void(const EvalProgress &)>;
+
 // Evaluates `prompt` into the KV cache, reusing its longest common prefix with `cache`. At least the last
 // unit is always evaluated so its logits are available for sampling. On success `n_past` is the position
 // after the prompt. On cancel or failure the cache is reset.
 inline EvalResult eval_prompt_cached(llama_context *ctx, mtmd_context *mtmd, PromptCache &cache,
                                      const PreparedPrompt &prompt, int batch_size,
-                                     const std::atomic<bool> &cancel, llama_pos &n_past, EvalStats &stats) {
+                                     const std::atomic<bool> &cancel, llama_pos &n_past, EvalStats &stats,
+                                     const EvalProgressFn &on_progress = nullptr) {
     const auto &units = prompt.units;
     if (units.empty()) return EvalResult::Failed;
 
@@ -151,6 +164,18 @@ inline EvalResult eval_prompt_cached(llama_context *ctx, mtmd_context *mtmd, Pro
     stats.reused = n_keep;
     stats.evaluated = units.size() - n_keep;
 
+    EvalProgress progress;
+    for (size_t i = 0; i < units.size(); i++) {
+        if (i < n_keep) {
+            progress.reused_tokens += units[i].n_tokens;
+        } else {
+            progress.total_tokens += units[i].n_tokens;
+            if (prompt.unit_chunk[i]) progress.image_count++;
+        }
+    }
+    auto report = [&]() { if (on_progress) on_progress(progress); };
+    report();
+
     const size_t last = units.size() - 1;
     size_t ui = n_keep;
     while (ui < units.size()) {
@@ -160,6 +185,8 @@ inline EvalResult eval_prompt_cached(llama_context *ctx, mtmd_context *mtmd, Pro
         }
 
         if (prompt.unit_chunk[ui]) {
+            progress.image_index++;
+            report();
             llama_pos new_n_past = n_past;
             if (mtmd_helper_eval_chunk_single(mtmd, ctx, prompt.unit_chunk[ui], n_past, 0, batch_size,
                                               /* logits_last */ ui == last, &new_n_past) != 0) {
@@ -168,6 +195,8 @@ inline EvalResult eval_prompt_cached(llama_context *ctx, mtmd_context *mtmd, Pro
             }
             n_past = new_n_past;
             cache.units.push_back(units[ui]);
+            progress.done_tokens += units[ui].n_tokens;
+            report();
             ui++;
             continue;
         }
@@ -188,6 +217,8 @@ inline EvalResult eval_prompt_cached(llama_context *ctx, mtmd_context *mtmd, Pro
         for (int j = 0; j < n_eval; j++) cache.units.push_back(units[ui + j]);
         n_past += n_eval;
         ui = run_end;
+        progress.done_tokens += n_eval;
+        report();
     }
     return EvalResult::Ok;
 }

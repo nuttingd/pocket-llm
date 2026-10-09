@@ -5,12 +5,17 @@ import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.data.remote.model.ChatCompletionChunk
 import dev.nutting.pocketllm.data.remote.model.ChatContent
 import dev.nutting.pocketllm.data.remote.model.ChatMessage
+import dev.nutting.pocketllm.data.remote.model.ChunkChoice
 import dev.nutting.pocketllm.data.remote.model.ContentPart
+import dev.nutting.pocketllm.data.remote.model.Delta
+import dev.nutting.pocketllm.llm.InferenceStatus
 import dev.nutting.pocketllm.llm.LlmEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -97,6 +102,9 @@ class LocalLlmClient(
         }
     }
 
+    /** What the engine is doing during a load or reply, for progress display; null when idle. */
+    val status: StateFlow<InferenceStatus?> get() = llmEngine.status
+
     private var loadedModelId: String? = null
     private var loadedGpuPercent: Int = -1
     private var loadedHasProjector = false
@@ -176,39 +184,35 @@ class LocalLlmClient(
         topP: Float?,
     ): Flow<ChatCompletionChunk> = channelFlow {
         val prompt = buildPrompt(messages, loadedHasProjector)
-
-        // Collect streaming progress from the engine — only delta tokens, no terminal chunk here.
-        val progressJob = launch {
-            llmEngine.progress.collect { progress ->
-                if (progress.tokenText.isNotEmpty() && progress.phase != "complete") {
-                    val chunk = ChatCompletionChunk(
-                        id = "local",
-                        model = loadedModelId ?: "local",
-                        choices = listOf(
-                            dev.nutting.pocketllm.data.remote.model.ChunkChoice(
-                                index = 0,
-                                delta = dev.nutting.pocketllm.data.remote.model.Delta(
-                                    content = progress.tokenText,
-                                ),
-                                finishReason = null,
-                            )
-                        ),
-                    )
-                    send(chunk)
-                }
+        val model = loadedModelId ?: "local"
+        val splitter = ThinkTagSplitter()
+        suspend fun sendPieces(pieces: List<ThinkTagSplitter.Piece>) {
+            for (piece in pieces) {
+                val delta = if (piece.thinking) Delta(reasoningContent = piece.text) else Delta(content = piece.text)
+                send(ChatCompletionChunk(id = "local", model = model, choices = listOf(ChunkChoice(index = 0, delta = delta))))
             }
         }
 
-        // Run inference (blocking)
-        val result = llmEngine.inferChat(
-            messagesJson = prompt.messagesJson,
-            images = prompt.images,
-            maxTokens = maxTokens ?: 2048,
-            temperature = temperature ?: 0.7f,
-            topP = topP ?: 0.95f,
-        )
+        // Tokens arrive on the inference thread; queue them and forward from this coroutine in order
+        val tokens = Channel<String>(Channel.UNLIMITED)
+        val forwarder = launch {
+            for (text in tokens) sendPieces(splitter.feed(text))
+        }
 
-        progressJob.cancel()
+        val result = try {
+            llmEngine.inferChat(
+                messagesJson = prompt.messagesJson,
+                images = prompt.images,
+                maxTokens = maxTokens ?: 2048,
+                temperature = temperature ?: 0.7f,
+                topP = topP ?: 0.95f,
+                onToken = { tokens.trySend(it) },
+            )
+        } finally {
+            tokens.close()
+        }
+        forwarder.join()
+        sendPieces(splitter.flush())
 
         if (result.startsWith("ERROR: ")) {
             val message = result.removePrefix("ERROR: ")
@@ -221,13 +225,7 @@ class LocalLlmClient(
             ChatCompletionChunk(
                 id = "local",
                 model = loadedModelId ?: "local",
-                choices = listOf(
-                    dev.nutting.pocketllm.data.remote.model.ChunkChoice(
-                        index = 0,
-                        delta = dev.nutting.pocketllm.data.remote.model.Delta(),
-                        finishReason = "stop",
-                    )
-                ),
+                choices = listOf(ChunkChoice(index = 0, delta = Delta(), finishReason = "stop")),
             )
         )
     }

@@ -409,12 +409,40 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
         return env->NewStringUTF("ERROR: context length exceeded");
     }
 
-    report_progress(env, thiz, progressMid, "prompt_eval", 0);
+    // Progress phases for the UI: "image:<index>:<count>" before an image is encoded, then
+    // "prompt:<done>:<total>:<cached>" (KV tokens) as batches and images finish
+    using clock = std::chrono::steady_clock;
+    const auto t_eval_start = clock::now();
+    auto t_image_start = t_eval_start;
+    auto ms_since = [](clock::time_point t) {
+        return (long long) std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - t).count();
+    };
+    int last_image_started = 0;
+    char phase_msg[96];
+    auto on_progress = [&](const EvalProgress &p) {
+        if (p.image_index > last_image_started) {
+            last_image_started = p.image_index;
+            t_image_start = clock::now();
+            snprintf(phase_msg, sizeof(phase_msg), "image:%d:%d", p.image_index, p.image_count);
+            report_progress(env, thiz, progressMid, phase_msg, 0);
+            return;
+        }
+        if (p.image_index > 0 && p.image_index == last_image_started && t_image_start != t_eval_start) {
+            LOGi("Image %d/%d encoded and evaluated in %lld ms", p.image_index, p.image_count, ms_since(t_image_start));
+            t_image_start = t_eval_start;  // log each image once
+        }
+        snprintf(phase_msg, sizeof(phase_msg), "prompt:%zu:%zu:%zu", p.done_tokens, p.total_tokens, p.reused_tokens);
+        report_progress(env, thiz, progressMid, phase_msg, (int) p.done_tokens);
+    };
+
     llama_pos n_past = 0;
     EvalStats stats;
-    EvalResult eval = eval_prompt_cached(g_context, g_mtmd, g_cache, prompt, BATCH_SIZE, g_cancel, n_past, stats);
+    EvalResult eval = eval_prompt_cached(g_context, g_mtmd, g_cache, prompt, BATCH_SIZE, g_cancel, n_past, stats,
+                                         on_progress);
     if (stats.full_reset) LOGw("Partial KV removal unsupported; re-evaluated the full prompt");
-    LOGi("Prompt cache: reused %zu units, evaluated %zu (n_past %d)", stats.reused, stats.evaluated, (int)n_past);
+    const long long eval_ms = ms_since(t_eval_start);
+    LOGi("Prompt cache: reused %zu units, evaluated %zu (n_past %d) in %lld ms",
+         stats.reused, stats.evaluated, (int)n_past, eval_ms);
     if (eval == EvalResult::Cancelled) {
         LOGi("Inference cancelled during prompt eval");
         g_in_guarded_section = false;
@@ -439,13 +467,13 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
          sparams.temp, sparams.top_p, sparams.top_k, sparams.min_p, sparams.penalty_repeat);
 
     // Token generation loop
-    constexpr int PROGRESS_INTERVAL = 1; // report every token for streaming
     int max_tok = maxTokens > 0 ? maxTokens : 2048;
 
     common_sampler *sampler = common_sampler_init(g_model, sparams);
     std::ostringstream out;
     std::string utf8_buf; // Buffer for incomplete multi-byte UTF-8 sequences
     auto t_start = std::chrono::steady_clock::now();
+    int n_generated = 0;
 
     llama_batch batch = llama_batch_init(1, 0, 1);
     for (int i = 0; i < max_tok; i++) {
@@ -489,9 +517,15 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
             break;
         }
         cache_generated_token(g_cache, new_token);
+        n_generated++;
     }
     llama_batch_free(batch);
     common_sampler_free(sampler);
+    {
+        double gen_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
+        LOGi("Generated %d tokens in %.1f s (%.1f tok/s); prompt eval took %lld ms",
+             n_generated, gen_s, gen_s > 0 ? n_generated / gen_s : 0.0, eval_ms);
+    }
 
     // The KV cache is kept: the next request reuses its common prefix (see g_cache)
 

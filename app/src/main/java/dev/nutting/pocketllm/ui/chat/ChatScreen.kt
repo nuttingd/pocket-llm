@@ -63,7 +63,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.nutting.pocketllm.ui.conversations.ConversationListDrawerContent
 import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
+import dev.nutting.pocketllm.llm.InferenceStatus
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -354,13 +356,36 @@ private fun ChatContent(
                 }
             }
             if (state.isStreaming) {
+                // The list is reversed: items added first appear lowest
+                val generating = state.localStatus as? InferenceStatus.Generating
                 if (state.currentStreamingContent.isNotEmpty()) {
                     item(key = "streaming") {
-                        StreamingMessageBubble(content = state.currentStreamingContent)
+                        StreamingMessageBubble(
+                            content = state.currentStreamingContent,
+                            footer = generating?.takeIf { it.tokensPerSecond > 0f }
+                                ?.let { String.format(Locale.US, "%.1f tok/s", it.tokensPerSecond) },
+                        )
                     }
-                } else if (!state.isCompacting) {
+                }
+                if (state.currentStreamingThinking.isNotEmpty()) {
+                    item(key = "streaming-thinking") {
+                        ThinkingSection(
+                            thinkingContent = state.currentStreamingThinking,
+                            title = if (state.currentStreamingContent.isEmpty()) "Thinking\u2026" else "Thinking",
+                            initiallyExpanded = true,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                if (state.currentStreamingContent.isEmpty() && state.currentStreamingThinking.isEmpty() &&
+                    !state.isCompacting
+                ) {
                     item(key = "typing") {
-                        TypingIndicator()
+                        if (state.useLocalModel) {
+                            LocalStatusIndicator(status = state.localStatus, startedAtMs = state.streamStartedAtMs)
+                        } else {
+                            TypingIndicator()
+                        }
                     }
                 }
             }
