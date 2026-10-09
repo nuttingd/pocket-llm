@@ -35,6 +35,8 @@ data class ChatMessage(
     @Serializable(with = ChatContentSerializer::class)
     val content: ChatContent,
     @SerialName("tool_call_id") val toolCallId: String? = null,
+    // Required on assistant turns that requested tools, so the following "tool" messages have a match
+    @SerialName("tool_calls") val toolCalls: List<ToolCall>? = null,
 )
 
 @Serializable(with = ChatContentSerializer::class)
