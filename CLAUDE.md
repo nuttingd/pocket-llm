@@ -36,7 +36,8 @@ Multi-module Android app using MVVM with Jetpack Compose.
 - `ChatManager` supports both remote API and local LLM inference via a single streaming interface
 - `LocalLlmClient` wraps `LlmEngine` to produce the same `ChatCompletionChunk` streaming events as the OpenAI API client
 - GGUF model files stored in `{externalFilesDir}/models/`, metadata in DataStore Preferences
-- WorkManager handles background model downloads with resume support
+- WorkManager handles background model downloads with resume support; `ModelDownloadManager` is the single entry point for starting/retrying/cancelling them
+- Any GGUF repo on Hugging Face can be browsed/downloaded via `HuggingFaceClient` + `HuggingFaceBrowserScreen`; HF model IDs are `hf:{owner}/{repo}/{path}`, files are stored as `{owner}--{repo}--{file}`. The optional HF token lives in `EncryptedDataStore` and is only sent to huggingface.co hosts
 
 ## Release Pipeline
 

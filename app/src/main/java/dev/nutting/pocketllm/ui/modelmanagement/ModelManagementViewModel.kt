@@ -1,27 +1,18 @@
 package dev.nutting.pocketllm.ui.modelmanagement
 
-import android.app.ActivityManager
 import android.app.Application
-import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
-import android.os.StatFs
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import androidx.work.workDataOf
 import dev.nutting.pocketllm.data.local.model.DownloadStatus
 import dev.nutting.pocketllm.data.local.model.LocalModel
 import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.data.local.model.ModelRegistry
 import dev.nutting.pocketllm.data.local.model.ModelRegistryEntry
 import dev.nutting.pocketllm.llm.LlmEngine
-import dev.nutting.pocketllm.util.ModelDownloadWorker
+import dev.nutting.pocketllm.util.ModelDownloadManager
+import dev.nutting.pocketllm.util.deviceTotalRamMb
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +36,7 @@ data class ModelManagementUiState(
 
 class ModelManagementViewModel(
     private val localModelStore: LocalModelStore,
+    private val downloadManager: ModelDownloadManager,
     private val llmEngine: LlmEngine,
     private val modelsDir: File,
     private val appContext: Application,
@@ -111,24 +103,13 @@ class ModelManagementViewModel(
     }
 
     fun downloadModel(entry: ModelRegistryEntry) {
-        // Check available storage
-        val stat = StatFs(modelsDir.absolutePath)
-        val availableBytes = stat.availableBytes
-        val requiredBytes = entry.totalSizeBytes + 100_000_000L // 100 MB buffer
-        if (availableBytes < requiredBytes) {
-            _uiState.update { it.copy(errorMessage = "Not enough storage. Need ${requiredBytes / (1024 * 1024)}MB, have ${availableBytes / (1024 * 1024)}MB.") }
-            return
+        when (val check = downloadManager.precheck(entry.totalSizeBytes)) {
+            is ModelDownloadManager.Precheck.InsufficientStorage ->
+                _uiState.update { it.copy(errorMessage = check.message) }
+            ModelDownloadManager.Precheck.CellularNetwork ->
+                _uiState.update { it.copy(showCellularWarning = true, pendingDownloadEntry = entry) }
+            ModelDownloadManager.Precheck.Ok -> startDownload(entry)
         }
-
-        // Check if on cellular
-        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
-        if (capabilities != null && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-            _uiState.update { it.copy(showCellularWarning = true, pendingDownloadEntry = entry) }
-            return
-        }
-
-        startDownload(entry)
     }
 
     fun confirmCellularDownload() {
@@ -141,51 +122,12 @@ class ModelManagementViewModel(
         _uiState.update { it.copy(showCellularWarning = false, pendingDownloadEntry = null) }
     }
 
-    private fun buildDownloadWorkRequest(entry: ModelRegistryEntry) =
-        OneTimeWorkRequestBuilder<ModelDownloadWorker>()
-            .setInputData(workDataOf(
-                ModelDownloadWorker.KEY_MODEL_ID to entry.id,
-                ModelDownloadWorker.KEY_MODEL_URL to entry.modelDownloadUrl,
-                ModelDownloadWorker.KEY_MODEL_FILENAME to entry.modelFileName,
-                ModelDownloadWorker.KEY_TOTAL_SIZE to entry.totalSizeBytes,
-                ModelDownloadWorker.KEY_PROJECTOR_URL to entry.projectorDownloadUrl,
-                ModelDownloadWorker.KEY_PROJECTOR_FILENAME to entry.projectorFileName,
-                ModelDownloadWorker.KEY_PROJECTOR_SIZE to entry.projectorSizeBytes,
-            ))
-            .build()
-
     private fun startDownload(entry: ModelRegistryEntry) {
-        viewModelScope.launch {
-            // Create model entry in store
-            val model = LocalModel(
-                id = entry.id,
-                name = entry.name,
-                parameterCount = entry.parameterCount,
-                quantization = entry.quantization,
-                modelFileName = entry.modelFileName,
-                projectorFileName = entry.projectorFileName ?: "",
-                modelSizeBytes = entry.modelSizeBytes,
-                projectorSizeBytes = entry.projectorSizeBytes,
-                downloadStatus = DownloadStatus.DOWNLOADING,
-                sourceUrl = entry.modelDownloadUrl,
-                projectorSourceUrl = entry.projectorDownloadUrl,
-                minimumRamMb = entry.minimumRamMb,
-                contextWindowSize = entry.contextWindowSize,
-            )
-            localModelStore.save(model)
-
-            WorkManager.getInstance(appContext)
-                .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.KEEP, buildDownloadWorkRequest(entry))
-
-            Log.i(TAG, "Download enqueued for ${entry.id}")
-        }
+        viewModelScope.launch { downloadManager.start(entry) }
     }
 
     fun cancelDownload(modelId: String) {
-        WorkManager.getInstance(appContext).cancelUniqueWork("download_$modelId")
-        viewModelScope.launch {
-            localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
-        }
+        viewModelScope.launch { downloadManager.cancel(modelId) }
     }
 
     fun selectModel(modelId: String) {
@@ -209,21 +151,8 @@ class ModelManagementViewModel(
 
     fun retryDownload(modelId: String) {
         viewModelScope.launch {
-            val model = localModelStore.getById(modelId) ?: return@launch
-            val entry = ModelRegistry.entries.find { it.id == modelId }
-
-            // For registry models, re-enqueue with original URLs
-            if (entry != null) {
-                localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, model.downloadedBytes)
-
-                WorkManager.getInstance(appContext)
-                    .enqueueUniqueWork("download_${entry.id}", ExistingWorkPolicy.REPLACE, buildDownloadWorkRequest(entry))
-
-                Log.i(TAG, "Retry enqueued for $modelId")
-            } else {
-                // Imported or unknown — delete and let user re-import
-                deletePartialDownload(modelId)
-            }
+            // Imported models have no source URL — delete and let the user re-import
+            if (!downloadManager.retry(modelId)) deletePartialDownload(modelId)
         }
     }
 
@@ -289,12 +218,7 @@ class ModelManagementViewModel(
         }
     }
 
-    fun getDeviceRamMb(): Int {
-        val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val memInfo = ActivityManager.MemoryInfo()
-        am.getMemoryInfo(memInfo)
-        return (memInfo.totalMem / (1024 * 1024)).toInt()
-    }
+    fun getDeviceRamMb(): Int = deviceTotalRamMb(appContext)
 
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }

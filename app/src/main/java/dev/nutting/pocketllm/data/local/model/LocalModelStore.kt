@@ -66,11 +66,16 @@ class LocalModelStore(context: Context) {
         return models.first().find { it.id == modelId }
     }
 
-    suspend fun updateStatus(modelId: String, status: DownloadStatus, downloadedBytes: Long = 0L) {
+    suspend fun updateStatus(
+        modelId: String,
+        status: DownloadStatus,
+        downloadedBytes: Long = 0L,
+        errorMessage: String? = null,
+    ) {
         dataStore.edit { prefs ->
             val current = getModels(prefs)
             val updated = current.map {
-                if (it.id == modelId) it.copy(downloadStatus = status, downloadedBytes = downloadedBytes)
+                if (it.id == modelId) it.copy(downloadStatus = status, downloadedBytes = downloadedBytes, errorMessage = errorMessage)
                 else it
             }
             prefs[Keys.MODELS] = json.encodeToString(updated)

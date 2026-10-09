@@ -56,4 +56,15 @@ class EncryptedDataStore(context: Context) {
         val key = stringPreferencesKey("api_key_$serverId")
         dataStore.edit { prefs -> prefs.remove(key) }
     }
+
+    // The Hugging Face token reuses the per-server key slot; server IDs are UUIDs so this can't collide
+    suspend fun saveHuggingFaceToken(token: String) = saveApiKey(HUGGING_FACE_KEY_ID, token)
+
+    fun getHuggingFaceToken(): Flow<String?> = getApiKey(HUGGING_FACE_KEY_ID)
+
+    suspend fun deleteHuggingFaceToken() = deleteApiKey(HUGGING_FACE_KEY_ID)
+
+    private companion object {
+        const val HUGGING_FACE_KEY_ID = "huggingface"
+    }
 }

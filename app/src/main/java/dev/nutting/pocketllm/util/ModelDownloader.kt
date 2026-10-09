@@ -18,6 +18,11 @@ class ModelDownloader {
 
     data class Progress(val bytesDownloaded: Long, val totalBytes: Long)
 
+    /** A non-retryable HTTP failure (e.g. 401/403/404) — retrying won't help. */
+    class HttpStatusException(val statusCode: Int) : Exception("Download failed with status $statusCode") {
+        val isPermanent: Boolean get() = statusCode in 400..499 && statusCode != 408 && statusCode != 429
+    }
+
     companion object {
         private const val TAG = "ModelDownloader"
         private const val BUFFER_SIZE = 1_048_576 // 1 MB
@@ -51,7 +56,7 @@ class ModelDownloader {
         })
         .build()
 
-    fun download(url: String, destinationFile: File): Flow<Progress> = flow {
+    fun download(url: String, destinationFile: File, headers: Map<String, String> = emptyMap()): Flow<Progress> = flow {
         cancelled.set(false)
 
         var totalBytes = -1L
@@ -69,15 +74,23 @@ class ModelDownloader {
             }
 
             val requestBuilder = Request.Builder().url(url)
+            // OkHttp drops Authorization on cross-host redirects (e.g. to the HF CDN)
+            headers.forEach { (name, value) -> requestBuilder.addHeader(name, value) }
             if (existingBytes > 0) {
                 requestBuilder.addHeader("Range", "bytes=$existingBytes-")
             }
 
             try {
                 val response = client.newCall(requestBuilder.build()).execute()
+                // A 416 on a resume means the file on disk is already complete
+                if (response.code == 416 && existingBytes > 0) {
+                    response.close()
+                    emit(Progress(existingBytes, existingBytes))
+                    break
+                }
                 if (!response.isSuccessful && response.code != 206) {
                     response.close()
-                    throw Exception("Download failed with status ${response.code}")
+                    throw HttpStatusException(response.code)
                 }
 
                 val body = response.body ?: throw Exception("Empty response body")

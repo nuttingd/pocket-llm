@@ -27,6 +27,7 @@ data class LocalModel(
     val isImported: Boolean = false,
     val minimumRamMb: Int = 4096,
     val contextWindowSize: Int = 4096,
+    val errorMessage: String? = null,
 ) {
     val totalSizeBytes: Long get() = modelSizeBytes + projectorSizeBytes
 }
