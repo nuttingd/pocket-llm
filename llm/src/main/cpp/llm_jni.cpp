@@ -15,6 +15,7 @@
 #include "sampling.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
+#include "prompt_cache.h"
 
 #include <nlohmann/json.hpp>
 
@@ -34,6 +35,9 @@ static llama_context *g_context = nullptr;
 static mtmd_context  *g_mtmd    = nullptr;
 static std::atomic<bool> g_cancel(false);
 static std::mutex g_engine_mutex;
+
+// What the KV cache holds for sequence 0; reused across requests (see prompt_cache.h)
+static PromptCache g_cache;
 
 // ---- Signal handler guard ----
 static thread_local sigjmp_buf  g_jmp_buf;
@@ -74,6 +78,7 @@ static void install_crash_handlers() {
 
 static void poison_native_state() {
     g_poisoned.store(true);
+    g_cache.units.clear();
     g_model   = nullptr;
     g_context = nullptr;
     g_mtmd    = nullptr;
@@ -203,6 +208,7 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     ctx_params.n_threads_batch = threads;
     ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
 
+    g_cache.units.clear();
     g_context = llama_init_from_model(g_model, ctx_params);
     if (!g_context) {
         LOGe("Failed to create context");
@@ -386,96 +392,38 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
 
     const auto *vocab = llama_model_get_vocab(g_model);
     int n_ctx = llama_n_ctx(g_context);
+
+    // Tokenize (text and media chunks), then evaluate only what isn't already in the KV cache
+    PreparedPrompt prompt;
+    if (const char *err = prepare_prompt(g_context, g_mtmd, full_prompt, image_bufs, prompt)) {
+        LOGe("Failed to prepare prompt: %s", err);
+        g_in_guarded_section = false;
+        return env->NewStringUTF((std::string("ERROR: ") + err).c_str());
+    }
+
+    size_t n_prompt_tokens = prompt.n_tokens();
+    LOGi("Chat prompt: %zu tokens in %zu units, %zu images", n_prompt_tokens, prompt.units.size(), image_bufs.size());
+    if (prompt.units.empty() || (int)n_prompt_tokens >= n_ctx) {
+        LOGe("Prompt (%zu tokens) is empty or exceeds context size (%d)", n_prompt_tokens, n_ctx);
+        g_in_guarded_section = false;
+        return env->NewStringUTF("ERROR: context length exceeded");
+    }
+
+    report_progress(env, thiz, progressMid, "prompt_eval", 0);
     llama_pos n_past = 0;
-
-    if (!image_bufs.empty()) {
-        // Multimodal path: mtmd replaces each media marker in the prompt with image embeddings
-        if (!g_mtmd) {
-            g_in_guarded_section = false;
-            return env->NewStringUTF("ERROR: images require a vision model with a projector");
-        }
-
-        std::vector<mtmd_bitmap *> bitmaps;
-        for (const auto &buf : image_bufs) {
-            mtmd_bitmap *bmp = mtmd_helper_bitmap_init_from_buf(g_mtmd, buf.data(), buf.size());
-            if (!bmp) {
-                for (auto *b : bitmaps) mtmd_bitmap_free(b);
-                g_in_guarded_section = false;
-                return env->NewStringUTF("ERROR: failed to decode image");
-            }
-            bitmaps.push_back(bmp);
-        }
-
-        mtmd_input_text text{full_prompt.c_str(), /* add_special */ true, /* parse_special */ true};
-        mtmd_input_chunks *chunks = mtmd_input_chunks_init();
-        std::vector<const mtmd_bitmap *> bitmap_ptrs(bitmaps.begin(), bitmaps.end());
-        int32_t rc = mtmd_tokenize(g_mtmd, chunks, &text, bitmap_ptrs.data(), bitmap_ptrs.size());
-        for (auto *b : bitmaps) mtmd_bitmap_free(b);
-        if (rc != 0) {
-            mtmd_input_chunks_free(chunks);
-            g_in_guarded_section = false;
-            LOGe("mtmd_tokenize failed: %d", rc);
-            return env->NewStringUTF(rc == 1
-                ? "ERROR: image count does not match image markers in prompt"
-                : "ERROR: failed to preprocess image");
-        }
-
-        size_t n_prompt = mtmd_helper_get_n_tokens(chunks);
-        LOGi("Multimodal prompt: %zu tokens, %zu images", n_prompt, image_bufs.size());
-        if ((int)n_prompt >= n_ctx) {
-            mtmd_input_chunks_free(chunks);
-            LOGe("Prompt (%zu tokens) exceeds context size (%d)", n_prompt, n_ctx);
-            g_in_guarded_section = false;
-            return env->NewStringUTF("ERROR: context length exceeded");
-        }
-
-        report_progress(env, thiz, progressMid, "prompt_eval", 0);
-        rc = mtmd_helper_eval_chunks(g_mtmd, g_context, chunks, 0, 0, BATCH_SIZE, /* logits_last */ true, &n_past);
-        mtmd_input_chunks_free(chunks);
-        if (rc != 0) {
-            LOGe("mtmd_helper_eval_chunks failed: %d", rc);
-            llama_memory_clear(llama_get_memory(g_context), false);
-            g_in_guarded_section = false;
-            return env->NewStringUTF("ERROR: prompt evaluation failed");
-        }
-    } else {
-        std::vector<llama_token> tokens = common_tokenize(g_context, full_prompt, true, true);
-        LOGi("Chat prompt tokenized: %zu tokens", tokens.size());
-
-        // Check context overflow
-        if ((int)tokens.size() >= n_ctx) {
-            LOGe("Prompt (%zu tokens) exceeds context size (%d)", tokens.size(), n_ctx);
-            g_in_guarded_section = false;
-            return env->NewStringUTF("ERROR: context length exceeded");
-        }
-
-        // Eval prompt tokens in batches
-        report_progress(env, thiz, progressMid, "prompt_eval", 0);
-        int n_tokens = (int)tokens.size();
-
-        for (int i = 0; i < n_tokens; i += BATCH_SIZE) {
-            if (g_cancel.load()) {
-                LOGi("Inference cancelled during prompt eval");
-                llama_memory_clear(llama_get_memory(g_context), false);
-                g_in_guarded_section = false;
-                return env->NewStringUTF("");
-            }
-
-            int n_eval = std::min(BATCH_SIZE, n_tokens - i);
-            llama_batch batch = llama_batch_init(n_eval, 0, 1);
-            for (int j = 0; j < n_eval; j++) {
-                common_batch_add(batch, tokens[i + j], n_past + j, {0}, (i + j == n_tokens - 1));
-            }
-            if (llama_decode(g_context, batch) != 0) {
-                LOGe("llama_decode failed during prompt eval at pos %d", i);
-                llama_batch_free(batch);
-                llama_memory_clear(llama_get_memory(g_context), false);
-                g_in_guarded_section = false;
-                return env->NewStringUTF("ERROR: prompt evaluation failed");
-            }
-            llama_batch_free(batch);
-            n_past += n_eval;
-        }
+    EvalStats stats;
+    EvalResult eval = eval_prompt_cached(g_context, g_mtmd, g_cache, prompt, BATCH_SIZE, g_cancel, n_past, stats);
+    if (stats.full_reset) LOGw("Partial KV removal unsupported; re-evaluated the full prompt");
+    LOGi("Prompt cache: reused %zu units, evaluated %zu (n_past %d)", stats.reused, stats.evaluated, (int)n_past);
+    if (eval == EvalResult::Cancelled) {
+        LOGi("Inference cancelled during prompt eval");
+        g_in_guarded_section = false;
+        return env->NewStringUTF("");
+    }
+    if (eval == EvalResult::Failed) {
+        LOGe("Prompt evaluation failed");
+        g_in_guarded_section = false;
+        return env->NewStringUTF("ERROR: prompt evaluation failed");
     }
 
     // Set up sampling parameters
@@ -537,14 +485,15 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
         common_batch_add(batch, new_token, n_past++, {0}, true);
         if (llama_decode(g_context, batch) != 0) {
             LOGe("llama_decode failed at token %d", i);
+            g_cache.reset(g_context);
             break;
         }
+        cache_generated_token(g_cache, new_token);
     }
     llama_batch_free(batch);
     common_sampler_free(sampler);
 
-    // Clear KV cache for next inference
-    llama_memory_clear(llama_get_memory(g_context), false);
+    // The KV cache is kept: the next request reuses its common prefix (see g_cache)
 
     // ---- End guarded section ----
     g_in_guarded_section = false;
@@ -581,6 +530,7 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeUnload(JNIEnv *, jobject) {
 
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
+    g_cache.units.clear();
     if (g_mtmd) {
         mtmd_free(g_mtmd);
         g_mtmd = nullptr;
