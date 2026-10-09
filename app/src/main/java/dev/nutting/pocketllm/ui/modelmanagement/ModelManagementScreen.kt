@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -62,6 +63,7 @@ import kotlin.math.roundToInt
 fun ModelManagementScreen(
     viewModel: ModelManagementViewModel,
     onNavigateBack: () -> Unit,
+    onBrowseHuggingFace: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -83,20 +85,9 @@ fun ModelManagementScreen(
 
     // Cellular warning dialog
     if (state.showCellularWarning) {
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissCellularWarning() },
-            title = { Text("Download on Cellular?") },
-            text = { Text("You're not on Wi-Fi. This download may use significant mobile data. Continue?") },
-            confirmButton = {
-                TextButton(onClick = { viewModel.confirmCellularDownload() }) {
-                    Text("Download Anyway")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.dismissCellularWarning() }) {
-                    Text("Cancel")
-                }
-            },
+        CellularWarningDialog(
+            onConfirm = { viewModel.confirmCellularDownload() },
+            onDismiss = { viewModel.dismissCellularWarning() },
         )
     }
 
@@ -170,6 +161,15 @@ fun ModelManagementScreen(
                         Text("Unload Model")
                     }
                 }
+            }
+
+            OutlinedButton(
+                onClick = onBrowseHuggingFace,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Browse Hugging Face")
             }
 
             // Downloaded models
@@ -345,7 +345,11 @@ private fun DownloadProgressCard(
                 )
                 TextButton(onClick = onCancel) { Text("Cancel") }
             } else {
-                Text("Download failed", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    model.errorMessage ?: "Download failed",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Row {
                     TextButton(onClick = onRetry) { Text("Retry") }
                     TextButton(onClick = onDelete) { Text("Remove") }

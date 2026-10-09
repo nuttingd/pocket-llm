@@ -16,6 +16,8 @@ import dev.nutting.pocketllm.PocketLlmApplication
 import dev.nutting.pocketllm.ui.chat.ChatScreen
 import dev.nutting.pocketllm.ui.chat.ChatViewModel
 import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
+import dev.nutting.pocketllm.ui.modelmanagement.HuggingFaceBrowserScreen
+import dev.nutting.pocketllm.ui.modelmanagement.HuggingFaceBrowserViewModel
 import dev.nutting.pocketllm.ui.modelmanagement.ModelManagementScreen
 import dev.nutting.pocketllm.ui.modelmanagement.ModelManagementViewModel
 import dev.nutting.pocketllm.ui.server.ServerConfigScreen
@@ -185,6 +187,7 @@ fun AppNavGraph(
             val modelManagementViewModel = remember {
                 ModelManagementViewModel(
                     localModelStore = container.localModelStore,
+                    downloadManager = container.modelDownloadManager,
                     llmEngine = container.llmEngine,
                     modelsDir = container.modelsDir,
                     appContext = context.applicationContext as android.app.Application,
@@ -192,6 +195,21 @@ fun AppNavGraph(
             }
             ModelManagementScreen(
                 viewModel = modelManagementViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onBrowseHuggingFace = { navController.navigate(HuggingFaceBrowser) },
+            )
+        }
+        composable<HuggingFaceBrowser> {
+            val huggingFaceBrowserViewModel = remember {
+                HuggingFaceBrowserViewModel(
+                    client = container.huggingFaceClient,
+                    encryptedDataStore = container.encryptedDataStore,
+                    localModelStore = container.localModelStore,
+                    downloadManager = container.modelDownloadManager,
+                )
+            }
+            HuggingFaceBrowserScreen(
+                viewModel = huggingFaceBrowserViewModel,
                 onNavigateBack = { navController.popBackStack() },
             )
         }

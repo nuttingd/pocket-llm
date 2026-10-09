@@ -21,4 +21,7 @@ object Settings
 object ModelManagement
 
 @Serializable
+object HuggingFaceBrowser
+
+@Serializable
 object Setup

@@ -12,6 +12,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dev.nutting.pocketllm.PocketLlmApplication
 import dev.nutting.pocketllm.data.local.model.DownloadStatus
+import dev.nutting.pocketllm.data.remote.huggingface.HuggingFace
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.RandomAccessFile
 
@@ -68,6 +70,19 @@ class ModelDownloadWorker(
 
         createNotificationChannel()
 
+        // The token is read here rather than passed as input data so it never lands in WorkManager's database
+        val hfToken = if (HuggingFace.isHuggingFaceUrl(modelUrl) || (projectorUrl != null && HuggingFace.isHuggingFaceUrl(projectorUrl))) {
+            try {
+                container.encryptedDataStore.getHuggingFaceToken().first()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not read Hugging Face token", e)
+                null
+            }
+        } else null
+        fun headersFor(url: String): Map<String, String> =
+            if (!hfToken.isNullOrBlank() && HuggingFace.isHuggingFaceUrl(url)) mapOf("Authorization" to "Bearer $hfToken")
+            else emptyMap()
+
         val modelFile = File(modelsDir, modelFilename)
         val hasProjector = !projectorUrl.isNullOrEmpty() && !projectorFilename.isNullOrEmpty()
 
@@ -75,7 +90,7 @@ class ModelDownloadWorker(
             setForeground(createForegroundInfo("Downloading model...", 0, totalSize))
 
             // Download model file
-            downloader.download(modelUrl, modelFile).collect { progress ->
+            downloader.download(modelUrl, modelFile, headersFor(modelUrl)).collect { progress ->
                 localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, progress.bytesDownloaded)
                 setForeground(createForegroundInfo("Downloading model...", progress.bytesDownloaded, totalSize))
                 setProgress(workDataOf(
@@ -88,7 +103,7 @@ class ModelDownloadWorker(
             if (!isValidGguf(modelFile)) {
                 Log.e(TAG, "Downloaded file is not a valid GGUF")
                 modelFile.delete()
-                localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                localModelStore.updateStatus(modelId, DownloadStatus.FAILED, errorMessage = "Downloaded file is not a valid GGUF model")
                 return Result.failure()
             }
 
@@ -96,7 +111,7 @@ class ModelDownloadWorker(
             if (hasProjector) {
                 val projectorFile = File(modelsDir, projectorFilename!!)
 
-                downloader.download(projectorUrl!!, projectorFile).collect { progress ->
+                downloader.download(projectorUrl!!, projectorFile, headersFor(projectorUrl)).collect { progress ->
                     val combinedBytes = (modelSizeBytes + progress.bytesDownloaded).coerceAtMost(totalSize)
                     localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, combinedBytes)
                     setForeground(createForegroundInfo("Downloading projector...", combinedBytes, totalSize))
@@ -110,7 +125,7 @@ class ModelDownloadWorker(
                     Log.e(TAG, "Downloaded projector is not a valid GGUF")
                     modelFile.delete()
                     projectorFile.delete()
-                    localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                    localModelStore.updateStatus(modelId, DownloadStatus.FAILED, errorMessage = "Downloaded projector is not a valid GGUF file")
                     return Result.failure()
                 }
             }
@@ -122,11 +137,12 @@ class ModelDownloadWorker(
             return Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for $modelId", e)
-            if (runAttemptCount >= 5) {
+            val permanent = e is ModelDownloader.HttpStatusException && e.isPermanent
+            if (permanent || runAttemptCount >= 5) {
                 Log.e(TAG, "Max retries reached for $modelId, cleaning up")
                 modelFile.delete()
                 if (hasProjector) File(modelsDir, projectorFilename!!).delete()
-                localModelStore.updateStatus(modelId, DownloadStatus.FAILED)
+                localModelStore.updateStatus(modelId, DownloadStatus.FAILED, errorMessage = failureMessage(e))
                 return Result.failure()
             }
             // Keep partial file for resume on retry
@@ -134,6 +150,13 @@ class ModelDownloadWorker(
             localModelStore.updateStatus(modelId, DownloadStatus.DOWNLOADING, existingBytes)
             return Result.retry()
         }
+    }
+
+    private fun failureMessage(e: Exception): String = when {
+        e is ModelDownloader.HttpStatusException && (e.statusCode == 401 || e.statusCode == 403) ->
+            "Access denied (HTTP ${e.statusCode}). This model may be gated: accept its license on huggingface.co and add an access token."
+        e is ModelDownloader.HttpStatusException && e.statusCode == 404 -> "File not found (HTTP 404)"
+        else -> e.message ?: "Download failed"
     }
 
     private fun createNotificationChannel() {
