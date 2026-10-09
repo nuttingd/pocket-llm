@@ -50,20 +50,39 @@ class LocalLlmClientPromptTest {
     }
 
     @Test
-    fun `images across history are collected in message order`() {
+    fun `only the latest user message images are sent, earlier ones become placeholders`() {
         val second = "data:image/png;base64," + Base64.getEncoder().encodeToString(byteArrayOf(9, 9))
         val messages = listOf(
             imageMessage(),
             ChatMessage(role = "assistant", content = ChatContent.Text("a photo")),
-            ChatMessage(role = "user", content = ChatContent.Parts(listOf(ContentPart.ImagePart(ImageUrl(url = second))))),
+            ChatMessage(role = "user", content = ChatContent.Parts(listOf(
+                ContentPart.ImagePart(ImageUrl(url = second)),
+                ContentPart.ImagePart(ImageUrl(url = dataUrl)),
+            ))),
         )
 
         val prompt = LocalLlmClient.buildPrompt(messages, visionEnabled = true)
 
         assertEquals(2, prompt.images.size)
-        assertArrayEquals(jpegBytes, prompt.images[0])
-        assertArrayEquals(byteArrayOf(9, 9), prompt.images[1])
-        assertEquals(LlmEngine.MEDIA_MARKER, contents(prompt.messagesJson)[2])
+        assertArrayEquals(byteArrayOf(9, 9), prompt.images[0])
+        assertArrayEquals(jpegBytes, prompt.images[1])
+        val contents = contents(prompt.messagesJson)
+        assertEquals("describe\n[image]", contents[0])
+        assertEquals("${LlmEngine.MEDIA_MARKER}\n${LlmEngine.MEDIA_MARKER}", contents[2])
+    }
+
+    @Test
+    fun `images in an earlier turn are not sent when the latest user message is text only`() {
+        val messages = listOf(
+            imageMessage(),
+            ChatMessage(role = "assistant", content = ChatContent.Text("a photo")),
+            ChatMessage(role = "user", content = ChatContent.Text("what color is it?")),
+        )
+
+        val prompt = LocalLlmClient.buildPrompt(messages, visionEnabled = true)
+
+        assertTrue(prompt.images.isEmpty())
+        assertEquals("describe\n[image]", contents(prompt.messagesJson)[0])
     }
 
     @Test
