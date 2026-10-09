@@ -20,12 +20,15 @@ import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.domain.tool.ToolExecutor
+import dev.nutting.pocketllm.llm.InferenceStatus
 import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -52,6 +55,9 @@ class ChatManager(
 ) {
     private var currentJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
+
+    /** On-device engine progress (model load, image encoding, prompt processing, generation). */
+    val localStatus: StateFlow<InferenceStatus?> = localLlmClient?.status ?: MutableStateFlow(null)
 
     companion object {
         private const val TAG = "ChatManager"

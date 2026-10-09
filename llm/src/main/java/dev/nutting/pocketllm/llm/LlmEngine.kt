@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class LlmEngine {
@@ -27,8 +29,14 @@ class LlmEngine {
     private val _state = MutableStateFlow<State>(State.Unloaded)
     val state: StateFlow<State> = _state.asStateFlow()
 
-    private val _progress = MutableSharedFlow<InferenceProgress>(extraBufferCapacity = 64)
+    // Unbounded: progress carries streamed token text, and tryEmit on a full buffer would drop tokens
+    private val _progress = MutableSharedFlow<InferenceProgress>(extraBufferCapacity = Int.MAX_VALUE)
     val progress: SharedFlow<InferenceProgress> = _progress.asSharedFlow()
+
+    private val _status = MutableStateFlow<InferenceStatus?>(null)
+
+    /** What the engine is doing during a load or inference; null when idle. */
+    val status: StateFlow<InferenceStatus?> = _status.asStateFlow()
 
     var deviceInfo: String = ""
         private set
@@ -37,8 +45,14 @@ class LlmEngine {
 
     @Suppress("unused") // Called from JNI
     fun onNativeProgress(phase: String, tokens: Int, tokenText: String) {
+        if (tokenText.isNotEmpty()) tokenListener?.invoke(tokenText)
         _progress.tryEmit(InferenceProgress(phase, tokens, tokenText))
+        InferenceStatus.fromNativePhase(phase, tokens)?.let { _status.value = it }
     }
+
+    // Serializes inferences so each request's token listener only sees its own tokens
+    private val inferMutex = Mutex()
+    @Volatile private var tokenListener: ((String) -> Unit)? = null
 
     companion object {
         private const val TAG = "LlmEngine"
@@ -77,6 +91,8 @@ class LlmEngine {
         }
 
         _state.value = State.Loading
+        _status.value = InferenceStatus.LoadingModel
+        val loadStart = System.currentTimeMillis()
         try {
             val result = withContext(Dispatchers.Default) {
                 nativeLoadModel(modelPath, projectorPath, nThreads, gpuOffloadPercent, contextSize)
@@ -85,7 +101,7 @@ class LlmEngine {
                 deviceInfo = nativeDeviceInfo()
                 Log.i(TAG, "Devices: $deviceInfo")
                 _state.value = State.Ready
-                Log.i(TAG, "Model loaded successfully")
+                Log.i(TAG, "Model loaded in ${System.currentTimeMillis() - loadStart} ms")
             } else {
                 val msg = when (result) {
                     -1 -> "Native state corrupted — please restart the app"
@@ -100,6 +116,8 @@ class LlmEngine {
         } catch (e: Exception) {
             _state.value = State.Error(e.message ?: "Load failed")
             Log.e(TAG, "Exception during model load", e)
+        } finally {
+            _status.value = null
         }
     }
 
@@ -114,6 +132,7 @@ class LlmEngine {
      * @param topK Top-k sampling.
      * @param minP Min-p sampling.
      * @param repeatPenalty Repetition penalty.
+     * @param onToken Called on the inference thread with each piece of generated text, in order.
      * @return The generated assistant response text.
      */
     suspend fun inferChat(
@@ -125,9 +144,11 @@ class LlmEngine {
         topK: Int = 40,
         minP: Float = 0.05f,
         repeatPenalty: Float = 1.1f,
-    ): String {
+        onToken: ((String) -> Unit)? = null,
+    ): String = inferMutex.withLock {
+        tokenListener = onToken
         _state.value = State.Inferring
-        return try {
+        try {
             val result = withContext(Dispatchers.Default) {
                 nativeInferChat(messagesJson, images.toTypedArray(), maxTokens, temperature, topP, topK, minP, repeatPenalty)
             }
@@ -138,6 +159,9 @@ class LlmEngine {
             _state.value = State.Error(e.message ?: "Inference failed")
             Log.e(TAG, "Exception during chat inference", e)
             throw e
+        } finally {
+            tokenListener = null
+            _status.value = null
         }
     }
 

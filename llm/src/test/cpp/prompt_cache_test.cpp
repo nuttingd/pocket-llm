@@ -73,8 +73,22 @@ static std::vector<TurnResult> run_chat(llama_model *model, llama_context *ctx, 
         }
         TurnResult r;
         llama_pos n_past = 0;
-        if (eval_prompt_cached(ctx, mtmd, cache, prompt, 512, cancel, n_past, r.stats) != EvalResult::Ok) {
+        EvalProgress last;
+        int images_seen = 0;
+        auto on_progress = [&](const EvalProgress &p) {
+            if (p.image_index > images_seen) {
+                if (p.image_index != images_seen + 1) { std::cerr << "image index skipped\n"; exit(1); }
+                images_seen = p.image_index;
+            }
+            last = p;
+        };
+        if (eval_prompt_cached(ctx, mtmd, cache, prompt, 512, cancel, n_past, r.stats, on_progress) != EvalResult::Ok) {
             std::cerr << "eval failed\n";
+            exit(1);
+        }
+        if (last.done_tokens != last.total_tokens || images_seen != last.image_count) {
+            std::cerr << "progress incomplete: " << last.done_tokens << "/" << last.total_tokens << " tokens, "
+                      << images_seen << "/" << last.image_count << " images\n";
             exit(1);
         }
         const float *logits = llama_get_logits_ith(ctx, -1);

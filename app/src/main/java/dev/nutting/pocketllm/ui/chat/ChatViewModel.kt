@@ -130,6 +130,11 @@ class ChatViewModel(
 
     private fun observeLocalModels() {
         viewModelScope.launch {
+            chatManager.localStatus.collect { status ->
+                _uiState.update { it.copy(localStatus = status) }
+            }
+        }
+        viewModelScope.launch {
             localModelStore?.models?.collect { models ->
                 val completed = models.filter { it.downloadStatus == DownloadStatus.COMPLETE }
                 _uiState.update { it.copy(localModels = completed) }
@@ -458,6 +463,7 @@ class ChatViewModel(
                     currentStreamingContent = "",
                     currentStreamingThinking = "",
                     error = null,
+                    streamStartedAtMs = System.currentTimeMillis(),
                 )
             }
 
@@ -583,7 +589,7 @@ class ChatViewModel(
 
         streamJob = viewModelScope.launch {
             _uiState.update {
-                it.copy(isStreaming = true, currentStreamingContent = "", currentStreamingThinking = "", error = null)
+                it.copy(isStreaming = true, currentStreamingContent = "", currentStreamingThinking = "", error = null, streamStartedAtMs = System.currentTimeMillis())
             }
 
             // Set active leaf to the parent so ChatManager builds from there

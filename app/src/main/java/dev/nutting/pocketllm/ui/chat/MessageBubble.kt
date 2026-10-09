@@ -386,6 +386,7 @@ private fun ToolResultContent(
 fun StreamingMessageBubble(
     content: String,
     modifier: Modifier = Modifier,
+    footer: String? = null,
 ) {
     Column(
         modifier = modifier
@@ -409,6 +410,14 @@ fun StreamingMessageBubble(
                 text = content + "\u258c",
                 modifier = Modifier.padding(12.dp),
                 style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        if (footer != null) {
+            Text(
+                text = footer,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
             )
         }
     }
