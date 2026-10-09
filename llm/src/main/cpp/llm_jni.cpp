@@ -217,7 +217,9 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     if (proj_path && strlen(proj_path) > 0) {
         mtmd_context_params mtmd_params = mtmd_context_params_default();
         mtmd_params.n_threads = threads;
-        mtmd_params.use_gpu = true;
+        // Encode images on CPU: a long vision-encoder dispatch on a mobile GPU can't be preempted and
+        // stalls UI rendering (the whole app stops responding) until it finishes
+        mtmd_params.use_gpu = false;
         mtmd_params.warmup = true;
         mtmd_params.image_max_tokens = 512;
 

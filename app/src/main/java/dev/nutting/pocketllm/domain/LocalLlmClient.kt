@@ -7,6 +7,9 @@ import dev.nutting.pocketllm.data.remote.model.ChatContent
 import dev.nutting.pocketllm.data.remote.model.ChatMessage
 import dev.nutting.pocketllm.data.remote.model.ContentPart
 import dev.nutting.pocketllm.llm.LlmEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
@@ -36,11 +39,23 @@ class LocalLlmClient(
         internal class LocalPrompt(val messagesJson: String, val images: List<ByteArray>)
 
         /**
-         * Flattens chat messages for the native engine. With [visionEnabled], each image part becomes a
-         * media marker and its bytes are collected in order; otherwise images are replaced by "[image]".
+         * Most images sent to the model per request. Each one is re-encoded every turn and costs up to
+         * ~512 context tokens, so older images beyond this are replaced by "[image]".
+         */
+        internal const val MAX_IMAGES = 2
+
+        /**
+         * Flattens chat messages for the native engine. With [visionEnabled], the last [MAX_IMAGES] image
+         * parts in the conversation become media markers and their bytes are collected in order; all
+         * other images are replaced by "[image]".
          */
         internal fun buildPrompt(messages: List<ChatMessage>, visionEnabled: Boolean): LocalPrompt {
             val images = mutableListOf<ByteArray>()
+            val totalImages = messages.sumOf { msg ->
+                (msg.content as? ChatContent.Parts)?.parts?.count { it is ContentPart.ImagePart } ?: 0
+            }
+            val firstSentImage = if (visionEnabled) (totalImages - MAX_IMAGES).coerceAtLeast(0) else Int.MAX_VALUE
+            var imageOrdinal = 0
             val json = buildJsonArray {
                 for (msg in messages) {
                     add(buildJsonObject {
@@ -51,7 +66,8 @@ class LocalLlmClient(
                                 when (part) {
                                     is ContentPart.TextPart -> part.text
                                     is ContentPart.ImagePart -> {
-                                        val bytes = if (visionEnabled) decodeDataUrl(part.imageUrl.url) else null
+                                        val send = imageOrdinal++ >= firstSentImage
+                                        val bytes = if (send) decodeDataUrl(part.imageUrl.url) else null
                                         if (bytes != null) {
                                             images += bytes
                                             LlmEngine.MEDIA_MARKER
@@ -218,6 +234,21 @@ class LocalLlmClient(
 
     fun cancel() {
         llmEngine.cancel()
+    }
+
+    private val releaseScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Frees the model in response to memory pressure. Safe to call from the main thread: unloading waits
+     * for any in-flight inference to release the native engine, so it runs in the background. With
+     * [cancelInFlight] false, an inference in progress is left to finish and nothing is unloaded.
+     */
+    fun releaseMemory(cancelInFlight: Boolean) {
+        if (llmEngine.state.value is LlmEngine.State.Inferring) {
+            if (!cancelInFlight) return
+            llmEngine.cancel()
+        }
+        releaseScope.launch { unload() }
     }
 
     fun unload() {

@@ -49,21 +49,59 @@ class LocalLlmClientPromptTest {
         assertTrue(prompt.images.isEmpty())
     }
 
+    private fun dataUrlOf(vararg bytes: Byte) =
+        "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes)
+
     @Test
-    fun `images across history are collected in message order`() {
-        val second = "data:image/png;base64," + Base64.getEncoder().encodeToString(byteArrayOf(9, 9))
+    fun `only the most recent images up to the cap are sent, older ones become placeholders`() {
         val messages = listOf(
             imageMessage(),
             ChatMessage(role = "assistant", content = ChatContent.Text("a photo")),
-            ChatMessage(role = "user", content = ChatContent.Parts(listOf(ContentPart.ImagePart(ImageUrl(url = second))))),
+            ChatMessage(role = "user", content = ChatContent.Parts(listOf(
+                ContentPart.ImagePart(ImageUrl(url = dataUrlOf(1))),
+                ContentPart.ImagePart(ImageUrl(url = dataUrlOf(2))),
+            ))),
         )
 
         val prompt = LocalLlmClient.buildPrompt(messages, visionEnabled = true)
 
-        assertEquals(2, prompt.images.size)
+        assertEquals(LocalLlmClient.MAX_IMAGES, prompt.images.size)
+        assertArrayEquals(byteArrayOf(1), prompt.images[0])
+        assertArrayEquals(byteArrayOf(2), prompt.images[1])
+        val contents = contents(prompt.messagesJson)
+        assertEquals("describe\n[image]", contents[0])
+        assertEquals("${LlmEngine.MEDIA_MARKER}\n${LlmEngine.MEDIA_MARKER}", contents[2])
+    }
+
+    @Test
+    fun `an image from an earlier turn is still sent for a text follow-up`() {
+        val messages = listOf(
+            imageMessage(),
+            ChatMessage(role = "assistant", content = ChatContent.Text("a photo")),
+            ChatMessage(role = "user", content = ChatContent.Text("what color is his shirt?")),
+        )
+
+        val prompt = LocalLlmClient.buildPrompt(messages, visionEnabled = true)
+
+        assertEquals(1, prompt.images.size)
         assertArrayEquals(jpegBytes, prompt.images[0])
-        assertArrayEquals(byteArrayOf(9, 9), prompt.images[1])
-        assertEquals(LlmEngine.MEDIA_MARKER, contents(prompt.messagesJson)[2])
+        assertEquals("describe\n${LlmEngine.MEDIA_MARKER}", contents(prompt.messagesJson)[0])
+    }
+
+    @Test
+    fun `images spread across turns keep the most recent two`() {
+        val messages = listOf(
+            ChatMessage(role = "user", content = ChatContent.Parts(listOf(ContentPart.ImagePart(ImageUrl(url = dataUrlOf(1)))))),
+            ChatMessage(role = "assistant", content = ChatContent.Text("one")),
+            ChatMessage(role = "user", content = ChatContent.Parts(listOf(ContentPart.ImagePart(ImageUrl(url = dataUrlOf(2)))))),
+            ChatMessage(role = "assistant", content = ChatContent.Text("two")),
+            ChatMessage(role = "user", content = ChatContent.Parts(listOf(ContentPart.ImagePart(ImageUrl(url = dataUrlOf(3)))))),
+        )
+
+        val prompt = LocalLlmClient.buildPrompt(messages, visionEnabled = true)
+
+        assertEquals(listOf(2.toByte(), 3.toByte()), prompt.images.map { it.single() })
+        assertEquals("[image]", contents(prompt.messagesJson)[0])
     }
 
     @Test
