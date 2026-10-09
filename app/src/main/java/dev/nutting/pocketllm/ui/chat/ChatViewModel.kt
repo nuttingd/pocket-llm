@@ -406,6 +406,8 @@ class ChatViewModel(
     }
 
     private fun isLikelyVisionModel(modelId: String): Boolean {
+        // Local models: vision support is exactly "has a projector"
+        _uiState.value.localModels.firstOrNull { it.id == modelId }?.let { return it.projectorFileName.isNotEmpty() }
         val lower = modelId.lowercase()
         return VISION_MODEL_KEYWORDS.any { lower.contains(it) }
     }

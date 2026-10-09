@@ -43,6 +43,9 @@ class LlmEngine {
     companion object {
         private const val TAG = "LlmEngine"
 
+        /** Placeholder for an image in message content; must match mtmd_default_marker() in llama.cpp. */
+        const val MEDIA_MARKER = "<__media__>"
+
         init {
             System.loadLibrary("pocketllm-llm")
         }
@@ -103,6 +106,8 @@ class LlmEngine {
     /**
      * Run multi-turn chat inference.
      * @param messagesJson JSON array of {role, content} chat messages.
+     * @param images Encoded images (JPEG/PNG bytes), one per [MEDIA_MARKER] in the message contents, in order.
+     *   Requires a model loaded with a projector.
      * @param maxTokens Maximum tokens to generate.
      * @param temperature Sampling temperature.
      * @param topP Nucleus sampling top-p.
@@ -113,6 +118,7 @@ class LlmEngine {
      */
     suspend fun inferChat(
         messagesJson: String,
+        images: List<ByteArray> = emptyList(),
         maxTokens: Int = 2048,
         temperature: Float = 0.7f,
         topP: Float = 0.95f,
@@ -123,7 +129,7 @@ class LlmEngine {
         _state.value = State.Inferring
         return try {
             val result = withContext(Dispatchers.Default) {
-                nativeInferChat(messagesJson, maxTokens, temperature, topP, topK, minP, repeatPenalty)
+                nativeInferChat(messagesJson, images.toTypedArray(), maxTokens, temperature, topP, topK, minP, repeatPenalty)
             }
             _progress.tryEmit(InferenceProgress("complete", 0, nativePerfInfo()))
             _state.value = State.Ready
@@ -158,7 +164,7 @@ class LlmEngine {
     external fun nativeModelName(): String
     private external fun nativeInit(backendPaths: Array<String>)
     private external fun nativeLoadModel(modelPath: String, projectorPath: String, nThreads: Int, gpuOffloadPercent: Int, contextSize: Int): Int
-    private external fun nativeInferChat(messagesJson: String, maxTokens: Int, temperature: Float, topP: Float, topK: Int, minP: Float, repeatPenalty: Float): String
+    private external fun nativeInferChat(messagesJson: String, images: Array<ByteArray>, maxTokens: Int, temperature: Float, topP: Float, topK: Int, minP: Float, repeatPenalty: Float): String
     private external fun nativeCancel()
     private external fun nativeUnload()
 }

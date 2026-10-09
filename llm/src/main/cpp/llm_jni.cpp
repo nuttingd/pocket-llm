@@ -281,7 +281,7 @@ extern "C"
 JNIEXPORT jstring JNICALL
 Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
     JNIEnv *env, jobject thiz,
-    jstring jMessagesJson, jint maxTokens,
+    jstring jMessagesJson, jobjectArray jImages, jint maxTokens,
     jfloat temperature, jfloat topP, jint topK, jfloat minP, jfloat repeatPenalty
 ) {
     if (g_poisoned.load() || !g_model || !g_context) {
@@ -324,6 +324,18 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
         return env->NewStringUTF("ERROR: invalid messages JSON");
     }
     env->ReleaseStringUTFChars(jMessagesJson, messages_str);
+
+    // Copy encoded images (one per media marker in the message contents, in order)
+    std::vector<std::vector<unsigned char>> image_bufs;
+    const jsize n_images = jImages ? env->GetArrayLength(jImages) : 0;
+    for (jsize i = 0; i < n_images; i++) {
+        auto jImg = (jbyteArray) env->GetObjectArrayElement(jImages, i);
+        const jsize len = env->GetArrayLength(jImg);
+        std::vector<unsigned char> buf(len);
+        env->GetByteArrayRegion(jImg, 0, len, reinterpret_cast<jbyte *>(buf.data()));
+        env->DeleteLocalRef(jImg);
+        image_bufs.push_back(std::move(buf));
+    }
 
     // Build chat messages array for template
     std::vector<llama_chat_message> chat_msgs;
@@ -370,46 +382,98 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
         LOGw("No chat template in model, using fallback format");
     }
 
-    // Tokenize
     const auto *vocab = llama_model_get_vocab(g_model);
-    std::vector<llama_token> tokens = common_tokenize(g_context, full_prompt, true, true);
-    LOGi("Chat prompt tokenized: %zu tokens", tokens.size());
-
-    // Check context overflow
     int n_ctx = llama_n_ctx(g_context);
-    if ((int)tokens.size() >= n_ctx) {
-        LOGe("Prompt (%zu tokens) exceeds context size (%d)", tokens.size(), n_ctx);
-        g_in_guarded_section = false;
-        return env->NewStringUTF("ERROR: context length exceeded");
-    }
-
-    // Eval prompt tokens in batches
-    report_progress(env, thiz, progressMid, "prompt_eval", 0);
     llama_pos n_past = 0;
-    int n_tokens = (int)tokens.size();
 
-    for (int i = 0; i < n_tokens; i += BATCH_SIZE) {
-        if (g_cancel.load()) {
-            LOGi("Inference cancelled during prompt eval");
-            llama_memory_clear(llama_get_memory(g_context), false);
+    if (!image_bufs.empty()) {
+        // Multimodal path: mtmd replaces each media marker in the prompt with image embeddings
+        if (!g_mtmd) {
             g_in_guarded_section = false;
-            return env->NewStringUTF("");
+            return env->NewStringUTF("ERROR: images require a vision model with a projector");
         }
 
-        int n_eval = std::min(BATCH_SIZE, n_tokens - i);
-        llama_batch batch = llama_batch_init(n_eval, 0, 1);
-        for (int j = 0; j < n_eval; j++) {
-            common_batch_add(batch, tokens[i + j], n_past + j, {0}, (i + j == n_tokens - 1));
+        std::vector<mtmd_bitmap *> bitmaps;
+        for (const auto &buf : image_bufs) {
+            mtmd_bitmap *bmp = mtmd_helper_bitmap_init_from_buf(g_mtmd, buf.data(), buf.size());
+            if (!bmp) {
+                for (auto *b : bitmaps) mtmd_bitmap_free(b);
+                g_in_guarded_section = false;
+                return env->NewStringUTF("ERROR: failed to decode image");
+            }
+            bitmaps.push_back(bmp);
         }
-        if (llama_decode(g_context, batch) != 0) {
-            LOGe("llama_decode failed during prompt eval at pos %d", i);
-            llama_batch_free(batch);
+
+        mtmd_input_text text{full_prompt.c_str(), /* add_special */ true, /* parse_special */ true};
+        mtmd_input_chunks *chunks = mtmd_input_chunks_init();
+        std::vector<const mtmd_bitmap *> bitmap_ptrs(bitmaps.begin(), bitmaps.end());
+        int32_t rc = mtmd_tokenize(g_mtmd, chunks, &text, bitmap_ptrs.data(), bitmap_ptrs.size());
+        for (auto *b : bitmaps) mtmd_bitmap_free(b);
+        if (rc != 0) {
+            mtmd_input_chunks_free(chunks);
+            g_in_guarded_section = false;
+            LOGe("mtmd_tokenize failed: %d", rc);
+            return env->NewStringUTF(rc == 1
+                ? "ERROR: image count does not match image markers in prompt"
+                : "ERROR: failed to preprocess image");
+        }
+
+        size_t n_prompt = mtmd_helper_get_n_tokens(chunks);
+        LOGi("Multimodal prompt: %zu tokens, %zu images", n_prompt, image_bufs.size());
+        if ((int)n_prompt >= n_ctx) {
+            mtmd_input_chunks_free(chunks);
+            LOGe("Prompt (%zu tokens) exceeds context size (%d)", n_prompt, n_ctx);
+            g_in_guarded_section = false;
+            return env->NewStringUTF("ERROR: context length exceeded");
+        }
+
+        report_progress(env, thiz, progressMid, "prompt_eval", 0);
+        rc = mtmd_helper_eval_chunks(g_mtmd, g_context, chunks, 0, 0, BATCH_SIZE, /* logits_last */ true, &n_past);
+        mtmd_input_chunks_free(chunks);
+        if (rc != 0) {
+            LOGe("mtmd_helper_eval_chunks failed: %d", rc);
             llama_memory_clear(llama_get_memory(g_context), false);
             g_in_guarded_section = false;
             return env->NewStringUTF("ERROR: prompt evaluation failed");
         }
-        llama_batch_free(batch);
-        n_past += n_eval;
+    } else {
+        std::vector<llama_token> tokens = common_tokenize(g_context, full_prompt, true, true);
+        LOGi("Chat prompt tokenized: %zu tokens", tokens.size());
+
+        // Check context overflow
+        if ((int)tokens.size() >= n_ctx) {
+            LOGe("Prompt (%zu tokens) exceeds context size (%d)", tokens.size(), n_ctx);
+            g_in_guarded_section = false;
+            return env->NewStringUTF("ERROR: context length exceeded");
+        }
+
+        // Eval prompt tokens in batches
+        report_progress(env, thiz, progressMid, "prompt_eval", 0);
+        int n_tokens = (int)tokens.size();
+
+        for (int i = 0; i < n_tokens; i += BATCH_SIZE) {
+            if (g_cancel.load()) {
+                LOGi("Inference cancelled during prompt eval");
+                llama_memory_clear(llama_get_memory(g_context), false);
+                g_in_guarded_section = false;
+                return env->NewStringUTF("");
+            }
+
+            int n_eval = std::min(BATCH_SIZE, n_tokens - i);
+            llama_batch batch = llama_batch_init(n_eval, 0, 1);
+            for (int j = 0; j < n_eval; j++) {
+                common_batch_add(batch, tokens[i + j], n_past + j, {0}, (i + j == n_tokens - 1));
+            }
+            if (llama_decode(g_context, batch) != 0) {
+                LOGe("llama_decode failed during prompt eval at pos %d", i);
+                llama_batch_free(batch);
+                llama_memory_clear(llama_get_memory(g_context), false);
+                g_in_guarded_section = false;
+                return env->NewStringUTF("ERROR: prompt evaluation failed");
+            }
+            llama_batch_free(batch);
+            n_past += n_eval;
+        }
     }
 
     // Set up sampling parameters
