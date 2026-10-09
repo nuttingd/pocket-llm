@@ -80,6 +80,8 @@ class OpenAiApiClient(
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
+        // Omit unset optional fields: llama.cpp's server rejects e.g. "tool_call_id": null
+        explicitNulls = false
     }
 
     companion object {

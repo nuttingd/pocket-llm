@@ -446,6 +446,8 @@ class ChatViewModel(
                 )
                 _uiState.update { it.copy(conversationId = conversationId, conversationTitle = title) }
                 settingsRepository.setLastActiveConversationId(conversationId)
+                // Observe now so the user's message (and any failure) is visible before the reply completes
+                observeConversation(conversationId)
             }
 
             _uiState.update {

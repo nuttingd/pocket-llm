@@ -14,6 +14,9 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -163,3 +166,64 @@ class OpenAiApiClientTest {
         assertTrue(exception.retryAfterSeconds == 5L)
     }
 }
+
+class OpenAiApiClientRequestBodyTest {
+
+    @Test
+    fun `given unset optional fields when streaming then request body omits nulls`() = runTest {
+        var capturedBody = ""
+        val mockEngine = MockEngine { request ->
+            capturedBody = (request.body as io.ktor.http.content.TextContent).text
+            respond(
+                content = "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream"),
+            )
+        }
+        val apiClient = OpenAiApiClient(testClientFactory = { HttpClient(mockEngine) })
+
+        val request = ChatCompletionRequest(
+            model = "test-model",
+            messages = listOf(ChatMessage(role = "user", content = ChatContent.Text("hello"))),
+        )
+        val chunks = mutableListOf<dev.nutting.pocketllm.data.remote.model.ChatCompletionChunk>()
+        apiClient.streamChatCompletion("http://localhost", null, request = request).collect { chunks += it }
+
+        assertEquals(1, chunks.size)
+        assertTrue("Body should not contain null values: $capturedBody", !capturedBody.contains("null"))
+        assertTrue(!capturedBody.contains("tool_call_id"))
+        assertTrue(!capturedBody.contains("\"tools\""))
+        assertTrue(capturedBody.contains("\"stream\":true"))
+    }
+
+    @Test
+    fun `given a tool call round trip when streaming then assistant tool_calls precede the tool result`() = runTest {
+        var capturedBody = ""
+        val mockEngine = MockEngine { request ->
+            capturedBody = (request.body as io.ktor.http.content.TextContent).text
+            respond("data: [DONE]\n\n", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val apiClient = OpenAiApiClient(testClientFactory = { HttpClient(mockEngine) })
+        val toolCall = dev.nutting.pocketllm.data.remote.model.ToolCall(
+            id = "call_1",
+            function = dev.nutting.pocketllm.data.remote.model.FunctionCall(name = "get_time", arguments = "{}"),
+        )
+        val request = ChatCompletionRequest(
+            model = "m",
+            messages = listOf(
+                ChatMessage(role = "user", content = ChatContent.Text("what time is it")),
+                ChatMessage(role = "assistant", content = ChatContent.Text(""), toolCalls = listOf(toolCall)),
+                ChatMessage(role = "tool", content = ChatContent.Text("12:00"), toolCallId = "call_1"),
+            ),
+        )
+
+        apiClient.streamChatCompletion("http://localhost", null, request = request).collect { }
+
+        val messages = Json.parseToJsonElement(capturedBody).jsonObject["messages"]!!.jsonArray
+        val assistant = messages[1].jsonObject
+        assertEquals("call_1", assistant["tool_calls"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("call_1", messages[2].jsonObject["tool_call_id"]!!.jsonPrimitive.content)
+        assertTrue("user message should carry no tool fields", messages[0].jsonObject.keys == setOf("role", "content"))
+    }
+}
+

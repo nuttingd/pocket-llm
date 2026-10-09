@@ -228,6 +228,7 @@ class ChatManager(
                             role = msg.role,
                             content = chatContent,
                             toolCallId = msg.toolCallId,
+                            toolCalls = msg.toolCallsJson?.let { decodeToolCalls(it) },
                         )
                     )
                 }
@@ -381,6 +382,7 @@ class ChatManager(
                         chatMessages = chatMessages + ChatMessage(
                             role = "assistant",
                             content = ChatContent.Text(finalContent),
+                            toolCalls = resolvedToolCalls,
                         ) + toolMessages
 
                         lastParentMessage = currentParent
@@ -427,6 +429,16 @@ class ChatManager(
             Log.e(TAG, "Unexpected error during chat", e)
             emit(StreamState.Error(e.message ?: "Unknown error"))
         }
+    }
+
+    private fun decodeToolCalls(json: String): List<ToolCall>? = try {
+        kotlinx.serialization.json.Json.decodeFromString(
+            kotlinx.serialization.builtins.ListSerializer(ToolCall.serializer()),
+            json,
+        ).takeIf { it.isNotEmpty() }
+    } catch (e: Exception) {
+        Log.w(TAG, "Ignoring unreadable tool calls on stored message", e)
+        null
     }
 
     private fun ToolDefinitionEntity.toToolParam(): ToolDefinitionParam {
