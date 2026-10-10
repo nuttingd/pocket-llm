@@ -12,6 +12,7 @@ import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
+import dev.nutting.pocketllm.domain.GenerationManager
 import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
@@ -72,4 +73,12 @@ class AppContainer(context: Context) {
         toolDefinitionDao = toolDefinitionDao,
         localLlmClient = localLlmClient,
     )
+
+    /** Owns in-flight replies so they keep running (and can be re-attached to) after leaving a chat. */
+    val generationManager = GenerationManager(
+        cancelLocalInference = chatManager::cancelLocalInference,
+        generateTitle = chatManager::generateTitle,
+    ).also { manager ->
+        chatManager.toolApprovalCallback = manager::awaitToolApproval
+    }
 }

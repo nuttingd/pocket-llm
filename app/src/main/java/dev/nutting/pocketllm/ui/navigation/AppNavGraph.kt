@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -62,9 +63,11 @@ fun AppNavGraph(
         },
     ) {
         composable<ConversationList> {
-            val chatViewModel = remember {
+            // Scoped to the back stack entry: survives visits to other screens, cleared when the entry is popped
+            val chatViewModel = viewModel {
                 ChatViewModel(
                     chatManager = container.chatManager,
+                    generationManager = container.generationManager,
                     conversationRepository = container.conversationRepository,
                     messageRepository = container.messageRepository,
                     serverRepository = container.serverRepository,
@@ -97,9 +100,11 @@ fun AppNavGraph(
         }
         composable<Chat> { backStackEntry ->
             val route = backStackEntry.toRoute<Chat>()
-            val chatViewModel = remember(route.conversationId) {
+            // Scoped to the back stack entry: survives visits to other screens, cleared when the entry is popped
+            val chatViewModel = viewModel {
                 ChatViewModel(
                     chatManager = container.chatManager,
+                    generationManager = container.generationManager,
                     conversationRepository = container.conversationRepository,
                     messageRepository = container.messageRepository,
                     serverRepository = container.serverRepository,

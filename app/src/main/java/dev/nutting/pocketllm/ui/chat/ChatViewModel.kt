@@ -21,11 +21,12 @@ import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
 import dev.nutting.pocketllm.util.ImageCompressor
 import dev.nutting.pocketllm.data.repository.SettingsRepository
+import dev.nutting.pocketllm.domain.ActiveGeneration
 import dev.nutting.pocketllm.domain.ChatManager
+import dev.nutting.pocketllm.domain.GenerationManager
 import dev.nutting.pocketllm.domain.LocalLlmClient
-import dev.nutting.pocketllm.domain.StreamState
+import dev.nutting.pocketllm.domain.TitleRequest
 import dev.nutting.pocketllm.util.TokenCounter
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -42,6 +45,7 @@ import java.util.UUID
 
 class ChatViewModel(
     private val chatManager: ChatManager,
+    private val generationManager: GenerationManager,
     private val conversationRepository: ConversationRepository,
     private val messageRepository: MessageRepository,
     private val serverRepository: ServerRepository,
@@ -63,11 +67,13 @@ class ChatViewModel(
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
-    private var streamJob: Job? = null
     private var messagesJob: Job? = null
     private var compactionJob: Job? = null
+    private var generationJob: Job? = null
     private var isFirstMessage = true
-    private var toolApprovalDeferred: CompletableDeferred<Boolean>? = null
+    // The screen calls loadConversation each time it's shown; only the first call for a route loads
+    private var loadedRoute: String? = null
+    private var hasLoaded = false
 
     init {
         loadServers()
@@ -76,15 +82,12 @@ class ChatViewModel(
         loadPresets()
         observeFontSize()
         observeLocalModels()
-        chatManager.toolApprovalCallback = { toolCalls ->
-            val deferred = CompletableDeferred<Boolean>()
-            toolApprovalDeferred = deferred
-            _uiState.update { it.copy(pendingToolCalls = toolCalls, toolCallResults = emptyMap()) }
-            deferred.await()
-        }
     }
 
     fun loadConversation(conversationId: String?) {
+        if (hasLoaded && loadedRoute == conversationId) return
+        hasLoaded = true
+        loadedRoute = conversationId
         if (conversationId != null) {
             _uiState.update { it.copy(conversationId = conversationId) }
             isFirstMessage = false
@@ -250,6 +253,7 @@ class ChatViewModel(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun observeConversation(conversationId: String) {
+        observeGeneration(conversationId)
         messagesJob?.cancel()
         messagesJob = viewModelScope.launch {
             conversationRepository.getById(conversationId)
@@ -281,6 +285,56 @@ class ChatViewModel(
             compactionSummaryDao?.getByConversationId(conversationId)?.collect { summaries ->
                 Log.d(TAG, "Compaction summaries updated: count=${summaries.size}, compactedCounts=${summaries.map { it.compactedMessageCount }}")
                 _uiState.update { it.copy(compactionSummaries = summaries) }
+            }
+        }
+    }
+
+    /** Mirrors the conversation's in-flight reply (which may have started before this screen existed). */
+    private fun observeGeneration(conversationId: String) {
+        generationJob?.cancel()
+        generationJob = viewModelScope.launch {
+            launch {
+                var wasGenerating = false
+                generationManager.generation(conversationId).collect { gen ->
+                    applyGeneration(gen, wasGenerating)
+                    wasGenerating = gen != null
+                }
+            }
+            launch {
+                generationManager.error(conversationId).collect { error ->
+                    if (error != null) {
+                        _uiState.update { it.copy(error = error) }
+                        generationManager.dismissError(conversationId)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun applyGeneration(gen: ActiveGeneration?, wasGenerating: Boolean) {
+        _uiState.update {
+            when {
+                gen != null -> it.copy(
+                    isStreaming = true,
+                    isStreamingLocal = gen.isLocal,
+                    isCompacting = gen.isCompacting,
+                    currentStreamingContent = gen.content,
+                    currentStreamingThinking = gen.thinking,
+                    streamStartedAtMs = gen.startedAtMs,
+                    pendingToolCalls = gen.pendingToolCalls,
+                    toolCallResults = gen.toolCallResults,
+                )
+                // Leave a manual compaction's flag alone unless a reply just finished
+                else -> it.copy(
+                    isStreaming = false,
+                    isStreamingLocal = false,
+                    isCompacting = if (wasGenerating) false else it.isCompacting,
+                    currentStreamingContent = "",
+                    currentStreamingThinking = "",
+                    streamStartedAtMs = null,
+                    pendingToolCalls = emptyList(),
+                    toolCallResults = emptyMap(),
+                )
             }
         }
     }
@@ -362,15 +416,13 @@ class ChatViewModel(
     }
 
     fun approveToolCalls() {
-        _uiState.update { it.copy(pendingToolCalls = emptyList()) }
-        toolApprovalDeferred?.complete(true)
-        toolApprovalDeferred = null
+        val conversationId = _uiState.value.conversationId ?: return
+        generationManager.resolveToolCalls(conversationId, approved = true)
     }
 
     fun declineToolCalls() {
-        _uiState.update { it.copy(pendingToolCalls = emptyList()) }
-        toolApprovalDeferred?.complete(false)
-        toolApprovalDeferred = null
+        val conversationId = _uiState.value.conversationId ?: return
+        generationManager.resolveToolCalls(conversationId, approved = false)
     }
 
     fun toggleTool(toolId: String, enabled: Boolean) {
@@ -440,7 +492,9 @@ class ChatViewModel(
 
         val resolved = resolvedParams()
 
-        streamJob = viewModelScope.launch {
+        val titleRequest = if (isFirstMessage && !isLocal) TitleRequest(serverId, modelId, content) else null
+
+        viewModelScope.launch {
             var conversationId = state.conversationId
             if (conversationId == null) {
                 conversationId = UUID.randomUUID().toString()
@@ -462,82 +516,38 @@ class ChatViewModel(
                 observeConversation(conversationId)
             }
 
-            _uiState.update {
-                it.copy(
-                    isStreaming = true,
-                    currentStreamingContent = "",
-                    currentStreamingThinking = "",
-                    error = null,
-                    streamStartedAtMs = System.currentTimeMillis(),
-                )
-            }
-
             val localContextWindowSize = if (isLocal) {
                 localModelStore?.getById(modelId)?.contextWindowSize
             } else null
 
-            chatManager.sendMessage(
-                conversationId = conversationId,
-                content = content,
-                serverId = serverId,
-                modelId = modelId,
-                systemPrompt = resolved.systemPrompt,
-                temperature = resolved.temperature,
-                maxTokens = resolved.maxTokens,
-                topP = resolved.topP,
-                frequencyPenalty = resolved.frequencyPenalty,
-                presencePenalty = resolved.presencePenalty,
-                imageDataUrls = imageDataUrls,
-                contextWindowSize = localContextWindowSize,
-            ).collect { streamState ->
-                when (streamState) {
-                    is StreamState.Compacting -> {
-                        _uiState.update { it.copy(isCompacting = true) }
-                    }
-                    is StreamState.Delta -> {
-                        _uiState.update {
-                            it.copy(
-                                isCompacting = false,
-                                currentStreamingContent = it.currentStreamingContent + streamState.content,
-                                currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
-                            )
-                        }
-                    }
-                    is StreamState.Complete -> {
-                        _uiState.update {
-                            it.copy(isStreaming = false, isCompacting = false, currentStreamingContent = "", currentStreamingThinking = "", toolCallResults = emptyMap())
-                        }
-                        observeConversation(conversationId)
-                        if (isFirstMessage) {
-                            isFirstMessage = false
-                            generateTitle(conversationId, content, streamState.message.content)
-                        }
-                    }
-                    is StreamState.Error -> {
-                        Log.e(TAG, "Stream error: ${streamState.error}")
-                        _uiState.update {
-                            it.copy(isStreaming = false, isCompacting = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
-                        }
-                    }
-                    is StreamState.ToolCallsPending -> {
-                        _uiState.update { it.copy(currentStreamingContent = "") }
-                    }
-                    is StreamState.ToolCallResult -> {
-                        _uiState.update {
-                            it.copy(
-                                toolCallResults = it.toolCallResults + (streamState.toolCallId to streamState.result),
-                                currentStreamingContent = "",
-                            )
-                        }
-                    }
-                }
+            _uiState.update { it.copy(error = null) }
+            val refused = generationManager.start(conversationId, isLocal, titleRequest) {
+                chatManager.sendMessage(
+                    conversationId = conversationId,
+                    content = content,
+                    serverId = serverId,
+                    modelId = modelId,
+                    systemPrompt = resolved.systemPrompt,
+                    temperature = resolved.temperature,
+                    maxTokens = resolved.maxTokens,
+                    topP = resolved.topP,
+                    frequencyPenalty = resolved.frequencyPenalty,
+                    presencePenalty = resolved.presencePenalty,
+                    imageDataUrls = imageDataUrls,
+                    contextWindowSize = localContextWindowSize,
+                )
+            }
+            if (refused != null) {
+                _uiState.update { it.copy(error = refused) }
+            } else {
+                isFirstMessage = false
             }
         }
     }
 
     fun stopGeneration() {
-        chatManager.stopGeneration()
-        _uiState.update { it.copy(isStreaming = false) }
+        val conversationId = _uiState.value.conversationId ?: return
+        generationManager.stop(conversationId)
     }
 
     fun switchServer(serverId: String) {
@@ -592,66 +602,34 @@ class ChatViewModel(
         val modelId = state.selectedModelId ?: return
         val resolved = resolvedParams()
 
-        streamJob = viewModelScope.launch {
-            _uiState.update {
-                it.copy(isStreaming = true, currentStreamingContent = "", currentStreamingThinking = "", error = null, streamStartedAtMs = System.currentTimeMillis())
-            }
-
-            // Set active leaf to the parent so ChatManager builds from there
-            conversationRepository.updateActiveLeaf(message.conversationId, parentId)
-
+        viewModelScope.launch {
             val localContextWindowSize = if (isLocal) {
                 localModelStore?.getById(modelId)?.contextWindowSize
             } else null
 
-            chatManager.sendMessage(
-                conversationId = message.conversationId,
-                content = "", // Empty - we're regenerating from the parent's user message
-                serverId = serverId,
-                modelId = modelId,
-                systemPrompt = resolved.systemPrompt,
-                temperature = resolved.temperature,
-                maxTokens = resolved.maxTokens,
-                topP = resolved.topP,
-                frequencyPenalty = resolved.frequencyPenalty,
-                presencePenalty = resolved.presencePenalty,
-                contextWindowSize = localContextWindowSize,
-            ).collect { streamState ->
-                when (streamState) {
-                    is StreamState.Compacting -> {
-                        _uiState.update { it.copy(isCompacting = true) }
-                    }
-                    is StreamState.Delta -> {
-                        _uiState.update {
-                            it.copy(
-                                isCompacting = false,
-                                currentStreamingContent = it.currentStreamingContent + streamState.content,
-                                currentStreamingThinking = it.currentStreamingThinking + (streamState.thinkingContent ?: ""),
-                            )
-                        }
-                    }
-                    is StreamState.Complete -> {
-                        _uiState.update {
-                            it.copy(isStreaming = false, isCompacting = false, currentStreamingContent = "", currentStreamingThinking = "")
-                        }
-                        observeConversation(message.conversationId)
-                    }
-                    is StreamState.Error -> {
-                        Log.e(TAG, "Regeneration stream error: ${streamState.error}")
-                        _uiState.update {
-                            it.copy(isStreaming = false, isCompacting = false, error = streamState.error, currentStreamingContent = "", currentStreamingThinking = "")
-                        }
-                    }
-                    is StreamState.ToolCallsPending -> {
-                        _uiState.update { it.copy(currentStreamingContent = "") }
-                    }
-                    is StreamState.ToolCallResult -> {
-                        _uiState.update {
-                            it.copy(toolCallResults = it.toolCallResults + (streamState.toolCallId to streamState.result))
-                        }
-                    }
+            _uiState.update { it.copy(error = null) }
+            val refused = generationManager.start(message.conversationId, isLocal) {
+                flow {
+                    // Set active leaf to the parent so ChatManager builds from there
+                    conversationRepository.updateActiveLeaf(message.conversationId, parentId)
+                    emitAll(
+                        chatManager.sendMessage(
+                            conversationId = message.conversationId,
+                            content = "", // Empty - we're regenerating from the parent's user message
+                            serverId = serverId,
+                            modelId = modelId,
+                            systemPrompt = resolved.systemPrompt,
+                            temperature = resolved.temperature,
+                            maxTokens = resolved.maxTokens,
+                            topP = resolved.topP,
+                            frequencyPenalty = resolved.frequencyPenalty,
+                            presencePenalty = resolved.presencePenalty,
+                            contextWindowSize = localContextWindowSize,
+                        )
+                    )
                 }
             }
+            if (refused != null) _uiState.update { it.copy(error = refused) }
         }
     }
 
@@ -740,66 +718,6 @@ class ChatViewModel(
 
     fun dismissError() {
         _uiState.update { it.copy(error = null) }
-    }
-
-    private fun generateTitle(conversationId: String, userMessage: String, assistantMessage: String) {
-        viewModelScope.launch {
-            val state = _uiState.value
-
-            // For local models, use simple title from first message
-            if (state.useLocalModel) {
-                val title = userMessage.take(50).let { if (userMessage.length > 50) "$it..." else it }
-                conversationRepository.rename(conversationId, title)
-                _uiState.update { it.copy(conversationTitle = title) }
-                return@launch
-            }
-
-            val server = state.selectedServer ?: return@launch
-            val modelId = state.selectedModelId ?: return@launch
-            val apiKey = if (server.hasApiKey) {
-                serverRepository.getApiKey(server.id).first()
-            } else null
-
-            try {
-                val request = dev.nutting.pocketllm.data.remote.model.ChatCompletionRequest(
-                    model = modelId,
-                    messages = listOf(
-                        dev.nutting.pocketllm.data.remote.model.ChatMessage(
-                            role = "system",
-                            content = dev.nutting.pocketllm.data.remote.model.ChatContent.Text(
-                                "Generate a short title (max 6 words) for this conversation. Respond with only the title, no quotes or punctuation."
-                            ),
-                        ),
-                        dev.nutting.pocketllm.data.remote.model.ChatMessage(
-                            role = "user",
-                            content = dev.nutting.pocketllm.data.remote.model.ChatContent.Text(userMessage),
-                        ),
-                        dev.nutting.pocketllm.data.remote.model.ChatMessage(
-                            role = "assistant",
-                            content = dev.nutting.pocketllm.data.remote.model.ChatContent.Text(assistantMessage.take(200)),
-                        ),
-                    ),
-                    maxTokens = 20,
-                    temperature = 0.3f,
-                    stream = false,
-                )
-
-                val apiClient = dev.nutting.pocketllm.data.remote.OpenAiApiClient()
-                val response = apiClient.chatCompletion(
-                    baseUrl = server.baseUrl,
-                    apiKey = apiKey,
-                    timeoutSeconds = server.requestTimeoutSeconds.toLong(),
-                    request = request,
-                )
-                val title = response.choices.firstOrNull()?.message?.content?.trim()
-                    ?.take(60) ?: return@launch
-
-                conversationRepository.rename(conversationId, title)
-                _uiState.update { it.copy(conversationTitle = title) }
-            } catch (e: Exception) {
-                Log.e(TAG, "Title generation failed", e)
-            }
-        }
     }
 
 }
