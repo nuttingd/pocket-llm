@@ -23,8 +23,6 @@ import dev.nutting.pocketllm.domain.tool.ToolExecutor
 import dev.nutting.pocketllm.llm.InferenceStatus
 import dev.nutting.pocketllm.util.TokenCounter
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,7 +51,6 @@ class ChatManager(
     private val toolDefinitionDao: ToolDefinitionDao? = null,
     private val localLlmClient: LocalLlmClient? = null,
 ) {
-    private var currentJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     /** On-device engine progress (model load, image encoding, prompt processing, generation). */
@@ -69,7 +66,8 @@ class ChatManager(
 
     private val isLocalServer: (String) -> Boolean = { it == LocalLlmClient.LOCAL_SERVER_ID }
 
-    var toolApprovalCallback: (suspend (List<ToolCall>) -> Boolean)? = null
+    /** Asks the user to approve tool calls for a conversation; approves when unset. */
+    var toolApprovalCallback: (suspend (conversationId: String, toolCalls: List<ToolCall>) -> Boolean)? = null
 
     fun sendMessage(
         conversationId: String,
@@ -257,8 +255,6 @@ class ChatManager(
                 var usage: Usage? = null
                 var finishReason: String? = null
 
-                currentJob = currentCoroutineContext()[Job]
-
                 // Choose streaming source: local LLM or remote API
                 val chunkFlow = if (isLocal) {
                     localLlmClient!!.streamChatCompletion(
@@ -354,7 +350,7 @@ class ChatManager(
                     emit(StreamState.ToolCallsPending(resolvedToolCalls))
 
                     // Check approval
-                    val approved = toolApprovalCallback?.invoke(resolvedToolCalls) ?: true
+                    val approved = toolApprovalCallback?.invoke(conversationId, resolvedToolCalls) ?: true
 
                     if (approved) {
                         // Execute tool calls and send results
@@ -666,9 +662,41 @@ class ChatManager(
         }
     }
 
-    fun stopGeneration() {
+    /** Interrupts the in-flight on-device inference, if any. */
+    fun cancelLocalInference() {
         localLlmClient?.cancel()
-        currentJob?.cancel()
-        currentJob = null
+    }
+
+    /**
+     * Names [conversationId] by asking the remote model for a short title. On-device conversations keep the
+     * title taken from their first message, so a title request doesn't evict the prompt cache.
+     */
+    suspend fun generateTitle(conversationId: String, request: TitleRequest, reply: String) {
+        if (isLocalServer(request.serverId)) return
+        val server = serverRepository.getById(request.serverId).first() ?: return
+        val apiKey = if (server.hasApiKey) serverRepository.getApiKey(server.id).first() else null
+        val response = apiClient.chatCompletion(
+            baseUrl = server.baseUrl,
+            apiKey = apiKey,
+            timeoutSeconds = server.requestTimeoutSeconds.toLong(),
+            request = ChatCompletionRequest(
+                model = request.modelId,
+                messages = listOf(
+                    ChatMessage(
+                        role = "system",
+                        content = ChatContent.Text(
+                            "Generate a short title (max 6 words) for this conversation. Respond with only the title, no quotes or punctuation."
+                        ),
+                    ),
+                    ChatMessage(role = "user", content = ChatContent.Text(request.userMessage)),
+                    ChatMessage(role = "assistant", content = ChatContent.Text(reply.take(200))),
+                ),
+                maxTokens = 20,
+                temperature = 0.3f,
+                stream = false,
+            ),
+        )
+        val title = response.choices.firstOrNull()?.message?.content?.trim()?.take(60)
+        if (!title.isNullOrBlank()) conversationRepository.rename(conversationId, title)
     }
 }

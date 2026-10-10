@@ -360,7 +360,7 @@ private fun ChatContent(
             }
             if (state.isStreaming) {
                 // The list is reversed: items added first appear lowest
-                val generating = state.localStatus as? InferenceStatus.Generating
+                val generating = (state.localStatus as? InferenceStatus.Generating)?.takeIf { state.isStreamingLocal }
                 if (state.currentStreamingContent.isNotEmpty()) {
                     item(key = "streaming") {
                         StreamingMessageBubble(
@@ -384,7 +384,7 @@ private fun ChatContent(
                     !state.isCompacting
                 ) {
                     item(key = "typing") {
-                        if (state.useLocalModel) {
+                        if (state.isStreamingLocal) {
                             LocalStatusIndicator(status = state.localStatus, startedAtMs = state.streamStartedAtMs)
                         } else {
                             TypingIndicator()

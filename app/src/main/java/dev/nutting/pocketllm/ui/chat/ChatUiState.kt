@@ -16,6 +16,8 @@ data class ChatUiState(
     val currentStreamingContent: String = "",
     val currentStreamingThinking: String = "",
     val isStreaming: Boolean = false,
+    /** Whether the in-flight reply runs on-device (independent of the model now selected). */
+    val isStreamingLocal: Boolean = false,
     val selectedServer: ServerProfileEntity? = null,
     val selectedModelId: String? = null,
     val availableModels: List<ModelInfo> = emptyList(),
