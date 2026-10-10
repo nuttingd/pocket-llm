@@ -244,13 +244,19 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeLoadModel(
     if (proj_path && strlen(proj_path) > 0) {
         mtmd_context_params mtmd_params = mtmd_context_params_default();
         mtmd_params.n_threads = threads;
-        // Encode images on CPU: a long vision-encoder dispatch on a mobile GPU can't be preempted and
-        // stalls UI rendering (the whole app stops responding) until it finishes
-        mtmd_params.use_gpu = false;
+        // Encode images on the GPU whenever the user allows GPU offload; the encoder dominates image latency
+        // and is many times slower on CPU
+        mtmd_params.use_gpu = gpuOffloadPercent > 0;
         mtmd_params.warmup = true;
         mtmd_params.image_max_tokens = 512;
 
         g_mtmd = mtmd_init_from_file(proj_path, g_model, mtmd_params);
+        if (!g_mtmd && mtmd_params.use_gpu) {
+            LOGw("GPU projector init failed; retrying on CPU");
+            mtmd_params.use_gpu = false;
+            g_mtmd = mtmd_init_from_file(proj_path, g_model, mtmd_params);
+        }
+        if (g_mtmd) LOGi("Image encoder on %s", mtmd_params.use_gpu ? "GPU" : "CPU");
         if (!g_mtmd) {
             LOGe("Failed to init mtmd from %s", proj_path);
             llama_free(g_context);
