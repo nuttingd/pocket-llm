@@ -8,11 +8,11 @@
 // Build (from the repo root, after `git submodule update --init external/llama.cpp`):
 //   cmake -S external/llama.cpp -B /tmp/llama-host -G Ninja -DCMAKE_BUILD_TYPE=Release \
 //         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_CURL=OFF
-//   cmake --build /tmp/llama-host --target llama common mtmd
+//   cmake --build /tmp/llama-host --target llama llama-common mtmd
 //   L=external/llama.cpp; B=/tmp/llama-host
 //   g++ -std=c++17 -O2 -Illm/src/main/cpp -I$L/include -I$L/common -I$L/ggml/include -I$L/tools/mtmd \
-//       -I$L/vendor llm/src/test/cpp/prompt_cache_test.cpp -o /tmp/prompt_cache_test $B/common/libcommon.a \
-//       -L$B/bin -lmtmd -lllama -lggml -lggml-base -lggml-cpu -Wl,-rpath,$B/bin -lpthread
+//       -I$L/vendor llm/src/test/cpp/prompt_cache_test.cpp -o /tmp/prompt_cache_test \
+//       -L$B/bin -lllama-common -lmtmd -lllama -lggml -lggml-base -lggml-cpu -Wl,-rpath,$B/bin -lpthread
 //
 // Run (e.g. SmolLM2-135M-Instruct-Q8_0, SmolVLM-256M-Instruct-Q8_0 + its mmproj, two JPEGs):
 //   /tmp/prompt_cache_test text.gguf vlm.gguf mmproj.gguf img1.jpg img2.jpg
@@ -100,8 +100,8 @@ static std::vector<TurnResult> run_chat(llama_model *model, llama_context *ctx, 
             llama_token tok = llama_sampler_sample(smpl, ctx, -1);
             if (llama_vocab_is_eog(vocab, tok)) break;
             r.text += common_token_to_piece(ctx, tok);
-            common_batch_clear(batch);
-            common_batch_add(batch, tok, n_past++, {0}, true);
+            batch.n_tokens = 0;
+            batch_add(batch, tok, n_past++, 0, true);
             if (llama_decode(ctx, batch) != 0) { std::cerr << "decode failed\n"; exit(1); }
             cache_generated_token(cache, tok);
         }
