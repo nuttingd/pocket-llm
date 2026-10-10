@@ -16,12 +16,15 @@ import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
 import dev.nutting.pocketllm.util.deviceTotalRamMb
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.RandomAccessFile
 
@@ -45,6 +48,8 @@ class ModelManagementViewModel(
     private val localLlmClient: LocalLlmClient,
     private val modelsDir: File,
     private val appContext: Application,
+    /** Runs operations that must complete after the screen is left (downloads, imports, loads, deletes). */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     companion object {
@@ -133,11 +138,11 @@ class ModelManagementViewModel(
     }
 
     private fun startDownload(entry: ModelRegistryEntry) {
-        viewModelScope.launch { downloadManager.start(entry) }
+        appScope.launch { downloadManager.start(entry) }
     }
 
     fun cancelDownload(modelId: String) {
-        viewModelScope.launch { downloadManager.cancel(modelId) }
+        appScope.launch { downloadManager.cancel(modelId) }
     }
 
     fun selectModel(modelId: String) {
@@ -147,7 +152,7 @@ class ModelManagementViewModel(
     }
 
     fun deleteModel(modelId: String) {
-        viewModelScope.launch {
+        appScope.launch {
             if (localLlmClient.modelState.value.let { it is LocalModelState.Loaded && it.modelId == modelId }) {
                 localLlmClient.releaseMemory(cancelInFlight = true)
             }
@@ -163,14 +168,14 @@ class ModelManagementViewModel(
     }
 
     fun retryDownload(modelId: String) {
-        viewModelScope.launch {
+        appScope.launch {
             // Imported models have no source URL — delete and let the user re-import
             if (!downloadManager.retry(modelId)) deletePartialDownload(modelId)
         }
     }
 
     fun deletePartialDownload(modelId: String) {
-        viewModelScope.launch {
+        appScope.launch {
             val model = localModelStore.getById(modelId)
             if (model != null) {
                 File(modelsDir, model.modelFileName).let { if (it.exists()) it.delete() }
@@ -195,7 +200,7 @@ class ModelManagementViewModel(
 
     /** Makes [modelId] the active model and loads it now, reporting why if it can't be loaded. */
     fun loadModel(modelId: String) {
-        viewModelScope.launch {
+        appScope.launch {
             localModelStore.setActiveModelId(modelId)
             try {
                 localLlmClient.ensureModelLoaded(modelId)
@@ -208,18 +213,22 @@ class ModelManagementViewModel(
     }
 
     fun importModel(uri: Uri) {
-        viewModelScope.launch {
+        appScope.launch {
             try {
                 val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "imported_model.gguf"
                 val destFile = File(modelsDir, fileName)
 
-                appContext.contentResolver.openInputStream(uri)?.use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                } ?: throw Exception("Cannot open file")
+                // Multi-GB copy: keep it off the main thread
+                val valid = withContext(Dispatchers.IO) {
+                    appContext.contentResolver.openInputStream(uri)?.use { input ->
+                        destFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: throw Exception("Cannot open file")
+                    isValidGguf(destFile)
+                }
 
-                if (!isValidGguf(destFile)) {
+                if (!valid) {
                     destFile.delete()
                     _uiState.update { it.copy(errorMessage = "Invalid GGUF file") }
                     return@launch

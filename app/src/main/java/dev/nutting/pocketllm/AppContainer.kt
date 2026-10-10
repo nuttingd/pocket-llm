@@ -16,9 +16,15 @@ import dev.nutting.pocketllm.domain.GenerationManager
 import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import java.io.File
 
 class AppContainer(context: Context) {
+
+    /** For work started from a screen that must finish even if the user leaves it (imports, model loads). */
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val database = PocketLlmDatabase.create(context)
     private val apiClient = OpenAiApiClient()

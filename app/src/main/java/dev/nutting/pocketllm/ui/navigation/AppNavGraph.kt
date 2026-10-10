@@ -35,7 +35,8 @@ fun AppNavGraph(
     val context = LocalContext.current
     val container = remember { (context.applicationContext as PocketLlmApplication).container }
 
-    val conversationListViewModel = remember {
+    // Shared by the chat destinations; created outside the NavHost so it's owned by the activity
+    val conversationListViewModel = viewModel {
         ConversationListViewModel(
             conversationRepository = container.conversationRepository,
             messageRepository = container.messageRepository,
@@ -136,7 +137,7 @@ fun AppNavGraph(
             )
         }
         composable<ServerConfig> {
-            val serverViewModel = remember {
+            val serverViewModel = viewModel {
                 ServerConfigViewModel(
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
@@ -149,7 +150,7 @@ fun AppNavGraph(
             )
         }
         composable<ServerEdit> { backStackEntry ->
-            val serverViewModel = remember {
+            val serverViewModel = viewModel {
                 ServerConfigViewModel(
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
@@ -162,7 +163,7 @@ fun AppNavGraph(
             )
         }
         composable<Settings> {
-            val settingsViewModel = remember {
+            val settingsViewModel = viewModel {
                 SettingsViewModel(
                     settingsRepository = container.settingsRepository,
                 )
@@ -189,7 +190,7 @@ fun AppNavGraph(
             )
         }
         composable<ModelManagement> {
-            val modelManagementViewModel = remember {
+            val modelManagementViewModel = viewModel {
                 ModelManagementViewModel(
                     localModelStore = container.localModelStore,
                     downloadManager = container.modelDownloadManager,
@@ -197,6 +198,7 @@ fun AppNavGraph(
                     localLlmClient = container.localLlmClient,
                     modelsDir = container.modelsDir,
                     appContext = context.applicationContext as android.app.Application,
+                    appScope = container.applicationScope,
                 )
             }
             ModelManagementScreen(
@@ -206,12 +208,13 @@ fun AppNavGraph(
             )
         }
         composable<HuggingFaceBrowser> {
-            val huggingFaceBrowserViewModel = remember {
+            val huggingFaceBrowserViewModel = viewModel {
                 HuggingFaceBrowserViewModel(
                     client = container.huggingFaceClient,
                     encryptedDataStore = container.encryptedDataStore,
                     localModelStore = container.localModelStore,
                     downloadManager = container.modelDownloadManager,
+                    appScope = container.applicationScope,
                 )
             }
             HuggingFaceBrowserScreen(

@@ -15,6 +15,7 @@ import dev.nutting.pocketllm.data.remote.huggingface.HuggingFace
 import dev.nutting.pocketllm.data.remote.huggingface.HuggingFaceClient
 import dev.nutting.pocketllm.util.ModelDownloadManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,8 @@ class HuggingFaceBrowserViewModel(
     private val encryptedDataStore: EncryptedDataStore,
     private val localModelStore: LocalModelStore,
     private val downloadManager: ModelDownloadManager,
+    /** Starts downloads so they're enqueued even if the screen is left immediately. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     companion object {
@@ -176,7 +179,7 @@ class HuggingFaceBrowserViewModel(
     }
 
     private fun startDownload(entry: ModelRegistryEntry) {
-        viewModelScope.launch {
+        appScope.launch {
             downloadManager.start(entry)
             _uiState.update { it.copy(message = "Downloading ${entry.name} (${entry.quantization})") }
         }
