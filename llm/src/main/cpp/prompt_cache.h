@@ -18,6 +18,16 @@
 #include <string>
 #include <vector>
 
+// Appends one token to a llama_batch allocated with llama_batch_init (one sequence per token).
+inline void batch_add(llama_batch &batch, llama_token token, llama_pos pos, llama_seq_id seq, bool logits) {
+    const int i = batch.n_tokens++;
+    batch.token[i] = token;
+    batch.pos[i] = pos;
+    batch.n_seq_id[i] = 1;
+    batch.seq_id[i][0] = seq;
+    batch.logits[i] = logits;
+}
+
 struct CacheUnit {
     llama_token token = -1;     // text token; -1 for a media chunk
     std::string media_id;       // media chunk id (empty for text)
@@ -83,7 +93,10 @@ inline const char *prepare_prompt(llama_context *ctx, mtmd_context *mtmd, const 
     std::vector<mtmd_bitmap *> bitmaps;
     auto free_bitmaps = [&]() { for (auto *b : bitmaps) mtmd_bitmap_free(b); };
     for (const auto &buf : images) {
-        mtmd_bitmap *bmp = mtmd_helper_bitmap_init_from_buf(mtmd, buf.data(), buf.size());
+        mtmd_helper_bitmap_wrapper decoded = mtmd_helper_bitmap_init_from_buf(
+            mtmd, buf.data(), buf.size(), /* placeholder */ false, mtmd_helper_init_opt_default());
+        if (decoded.video_ctx) mtmd_helper_video_free(decoded.video_ctx);  // only images are sent
+        mtmd_bitmap *bmp = decoded.bitmap;
         if (!bmp) {
             free_bitmaps();
             return "failed to decode image";
@@ -92,7 +105,13 @@ inline const char *prepare_prompt(llama_context *ctx, mtmd_context *mtmd, const 
         bitmaps.push_back(bmp);
     }
 
-    mtmd_input_text text{prompt.c_str(), /* add_special */ true, /* parse_special */ true};
+    // Assign by name: mtmd_input_text has gained fields over time (text_len), and positional init would
+    // silently misassign them
+    mtmd_input_text text{};
+    text.text = prompt.c_str();
+    text.text_len = prompt.size();
+    text.add_special = true;
+    text.parse_special = true;
     out.chunks = mtmd_input_chunks_init();
     std::vector<const mtmd_bitmap *> bitmap_ptrs(bitmaps.begin(), bitmaps.end());
     int32_t rc = mtmd_tokenize(mtmd, out.chunks, &text, bitmap_ptrs.data(), bitmap_ptrs.size());
@@ -206,7 +225,7 @@ inline EvalResult eval_prompt_cached(llama_context *ctx, mtmd_context *mtmd, Pro
         const int n_eval = (int) (run_end - ui);
         llama_batch batch = llama_batch_init(n_eval, 0, 1);
         for (int j = 0; j < n_eval; j++) {
-            common_batch_add(batch, units[ui + j].token, n_past + j, {0}, ui + j == last);
+            batch_add(batch, units[ui + j].token, n_past + j, 0, ui + j == last);
         }
         const int rc = llama_decode(ctx, batch);
         llama_batch_free(batch);

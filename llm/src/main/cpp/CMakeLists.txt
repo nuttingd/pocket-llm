@@ -25,9 +25,13 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-# Enable tools build (required for mtmd multimodal support)
-set(LLAMA_BUILD_TOOLS ON CACHE BOOL "" FORCE)
+# Build only the libraries we link: mtmd (multimodal) standalone, without the tools/server binaries
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_MTMD ON CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
 # Enable Vulkan GPU backend
 set(GGML_VULKAN ON CACHE BOOL "" FORCE)
@@ -44,9 +48,22 @@ if(DEFINED ANDROID_ABI)
             break()
         endif()
     endforeach()
+
+    # ggml-vulkan requires find_package(SPIRV-Headers CONFIG). The NDK toolchain confines package searches
+    # to its sysroot, so point at the host install (only its headers are used, via the -isystem path above).
+    if(NOT SPIRV-Headers_DIR)
+        find_path(_spirv_cfg_dir SPIRV-HeadersConfig.cmake
+                PATHS /opt/homebrew /usr/local /usr
+                PATH_SUFFIXES share/cmake/SPIRV-Headers lib/cmake/SPIRV-Headers
+                NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+        if(_spirv_cfg_dir)
+            set(SPIRV-Headers_DIR "${_spirv_cfg_dir}" CACHE PATH "SPIRV-Headers CMake config" FORCE)
+            message(STATUS "Found SPIRV-Headers config at: ${_spirv_cfg_dir}")
+        endif()
+    endif()
 endif()
 
-# Build llama.cpp (includes ggml, llama, common)
+# Build llama.cpp (includes ggml, llama, llama-common, mtmd)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
 # --------------------------------------------------------------------------
@@ -66,7 +83,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         llama
-        common
+        llama-common
         mtmd
         android
         log)

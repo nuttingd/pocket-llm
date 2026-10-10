@@ -538,8 +538,8 @@ Java_dev_nutting_pocketllm_llm_LlmEngine_nativeInferChat(
             report_progress(env, thiz, progressMid, phase_buf, i + 1, to_send.c_str());
         }
 
-        common_batch_clear(batch);
-        common_batch_add(batch, new_token, n_past++, {0}, true);
+        batch.n_tokens = 0;
+        batch_add(batch, new_token, n_past++, 0, true);
         if (llama_decode(g_context, batch) != 0) {
             LOGe("llama_decode failed at token %d", i);
             g_cache.reset(g_context);
