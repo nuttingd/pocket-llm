@@ -36,6 +36,7 @@ class SettingsDataStore(context: Context) {
     private val compactionThresholdPct = intPreferencesKey("compaction_threshold_pct")
     private val imageMaxDimensionPx = intPreferencesKey("image_max_dimension_px")
     private val imageJpegQuality = intPreferencesKey("image_jpeg_quality")
+    private val imageLivePreview = booleanPreferencesKey("image_live_preview")
 
     // Getters
     fun getThemeMode(): Flow<String> = dataStore.data.map { it[themeMode] ?: "system" }
@@ -53,6 +54,7 @@ class SettingsDataStore(context: Context) {
     fun getCompactionThresholdPct(): Flow<Int> = dataStore.data.map { it[compactionThresholdPct] ?: 75 }
     fun getImageMaxDimensionPx(): Flow<Int> = dataStore.data.map { it[imageMaxDimensionPx] ?: 1024 }
     fun getImageJpegQuality(): Flow<Int> = dataStore.data.map { it[imageJpegQuality] ?: 85 }
+    fun getImageLivePreview(): Flow<Boolean> = dataStore.data.map { it[imageLivePreview] ?: true }
 
     // Setters
     suspend fun setThemeMode(value: String) { dataStore.edit { it[themeMode] = value } }
@@ -70,4 +72,5 @@ class SettingsDataStore(context: Context) {
     suspend fun setCompactionThresholdPct(value: Int) { dataStore.edit { it[compactionThresholdPct] = value } }
     suspend fun setImageMaxDimensionPx(value: Int) { dataStore.edit { it[imageMaxDimensionPx] = value } }
     suspend fun setImageJpegQuality(value: Int) { dataStore.edit { it[imageJpegQuality] = value } }
+    suspend fun setImageLivePreview(value: Boolean) { dataStore.edit { it[imageLivePreview] = value } }
 }

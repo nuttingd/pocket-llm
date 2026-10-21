@@ -90,3 +90,44 @@ class ImageStore(
         private val SAFE = Regex("[A-Za-z0-9_-][A-Za-z0-9._-]*")
     }
 }
+
+/**
+ * The latest live-preview frame of each running job, under `cacheDir/image-previews/`. Frames are disposable,
+ * so they live in the cache. Each step gets a new file name: an image loader keyed by file would otherwise keep
+ * showing the first frame. Paths handed out and stored are relative to [cacheDir].
+ */
+class ImagePreviewStore(private val cacheDir: File) {
+    private val root = File(cacheDir, ROOT)
+
+    /** Writes [bytes] as [jobId]'s frame [frame], removes its older frames, and returns the relative path. */
+    fun write(jobId: String, frame: String, bytes: ByteArray, extension: String): String {
+        require(SAFE.matches(jobId) && SAFE.matches(frame) && SAFE.matches(extension)) { "Unsafe preview name" }
+        if (!root.isDirectory && !root.mkdirs()) throw IOException("Can't create $root")
+        val name = "${jobId}_$frame.$extension"
+        val tmp = File(root, ".$name.tmp")
+        try {
+            tmp.writeBytes(bytes)
+            Files.move(tmp.toPath(), File(root, name).toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (e: IOException) {
+            tmp.delete()
+            throw e
+        }
+        framesOf(jobId).filter { it.name != name }.forEach { it.delete() }
+        return "$ROOT/$name"
+    }
+
+    fun file(relativePath: String): File = File(cacheDir, relativePath)
+
+    /** Removes every frame of [jobId]; called when the job stops running. */
+    fun deleteJob(jobId: String) {
+        framesOf(jobId).forEach { it.delete() }
+    }
+
+    private fun framesOf(jobId: String): List<File> =
+        root.listFiles { f -> f.name.startsWith("${jobId}_") || f.name.startsWith(".${jobId}_") }.orEmpty().toList()
+
+    companion object {
+        const val ROOT = "image-previews"
+        private val SAFE = Regex("[A-Za-z0-9_-][A-Za-z0-9._-]*")
+    }
+}

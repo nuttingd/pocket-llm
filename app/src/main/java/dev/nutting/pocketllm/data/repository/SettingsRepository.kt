@@ -21,6 +21,7 @@ class SettingsRepository(
     fun getCompactionThresholdPct(): Flow<Int> = dataStore.getCompactionThresholdPct()
     fun getImageMaxDimensionPx(): Flow<Int> = dataStore.getImageMaxDimensionPx()
     fun getImageJpegQuality(): Flow<Int> = dataStore.getImageJpegQuality()
+    fun getImageLivePreview(): Flow<Boolean> = dataStore.getImageLivePreview()
 
     suspend fun setThemeMode(value: String) = dataStore.setThemeMode(value)
     suspend fun setMessageFontSizeSp(value: Int) = dataStore.setMessageFontSizeSp(value)
@@ -37,4 +38,5 @@ class SettingsRepository(
     suspend fun setCompactionThresholdPct(value: Int) = dataStore.setCompactionThresholdPct(value)
     suspend fun setImageMaxDimensionPx(value: Int) = dataStore.setImageMaxDimensionPx(value)
     suspend fun setImageJpegQuality(value: Int) = dataStore.setImageJpegQuality(value)
+    suspend fun setImageLivePreview(value: Boolean) = dataStore.setImageLivePreview(value)
 }

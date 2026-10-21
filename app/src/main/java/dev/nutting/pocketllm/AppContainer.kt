@@ -19,6 +19,7 @@ import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.domain.image.ImageJobLauncher
 import dev.nutting.pocketllm.domain.image.ImageJobRunner
 import dev.nutting.pocketllm.domain.image.ImageJobScheduler
+import dev.nutting.pocketllm.domain.image.ImagePreviewStore
 import dev.nutting.pocketllm.domain.image.ImageStore
 import dev.nutting.pocketllm.domain.image.ModelClassifier
 import dev.nutting.pocketllm.domain.image.WorkManagerImageJobScheduler
@@ -85,6 +86,12 @@ class AppContainer(context: Context) {
         sdCpp = sdCppImageClient,
         openAi = openAiImagesClient,
         store = imageStore,
+        previews = ImagePreviewStore(context.cacheDir),
+        previewMode = { server ->
+            // `proj` is the cheapest mode (~16 KB a frame), and sd-server reports step progress only with a preview
+            "proj".takeIf { it in modelClassifier.serverInfo(server).capabilities?.previewModes.orEmpty() }
+        },
+        livePreview = { settingsRepository.getImageLivePreview().first() },
     )
     val imageJobLauncher = ImageJobLauncher(
         db = database,

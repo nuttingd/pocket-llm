@@ -56,7 +56,7 @@ class SdServerLiveContractTest {
         runBlocking {
             db.conversationDao().insert(ConversationEntity(id = "c1", title = "Live", createdAt = 0, updatedAt = 0))
             db.messageDao().insert(MessageEntity(id = "u1", conversationId = "c1", role = "user", content = "x", createdAt = 0))
-            for (id in listOf("a1", "a2")) {
+            for (id in listOf("a1", "a2", "a3")) {
                 db.messageDao().insert(MessageEntity(id = id, conversationId = "c1", parentMessageId = "u1", role = "assistant", content = "", depth = 1, createdAt = 0))
             }
         }
@@ -69,6 +69,9 @@ class SdServerLiveContractTest {
 
     private val server get() = ServerProfileEntity(id = "s1", name = "live", baseUrl = baseUrl!!, imageTimeoutSeconds = 600, createdAt = 0, updatedAt = 0)
 
+    private val seenSteps = mutableListOf<Int>()
+    private val seenFrames = mutableSetOf<String>()
+
     private fun runner() = ImageJobRunner(
         db = db,
         server = { server },
@@ -76,6 +79,15 @@ class SdServerLiveContractTest {
         sdCpp = SdCppImageClient(),
         openAi = OpenAiImagesClient(),
         store = ImageStore(filesDir),
+        previews = ImagePreviewStore(filesDir),
+        previewMode = { "proj" },
+        sleep = { ms ->
+            db.imageJobDao().getById("job-a3")?.let { job ->
+                job.step?.let { if (seenSteps.lastOrNull() != it) seenSteps += it }
+                job.previewPath?.let { if (File(filesDir, it).exists()) seenFrames += it }
+            }
+            kotlinx.coroutines.delay(ms)
+        },
     )
 
     private suspend fun runJob(messageId: String, dialect: ImageDialect, params: ResolvedImageParameters): ImageJobEntity {
@@ -139,5 +151,17 @@ class SdServerLiveContractTest {
 
         // Wait for the first so the server is idle for other tests
         while (client.poll(baseUrl, null, first).status in setOf("queued", "generating")) Thread.sleep(500)
+    }
+
+    @Test
+    fun `given a real sd-server with proj previews then step progress and frames are recorded while it generates`() = runBlocking {
+        val params = ImageParameters(width = 512, height = 512, seed = 7, steps = 8).resolve(ImageDialect.SD_CPP)
+        val job = runJob("a3", ImageDialect.SD_CPP, params)
+
+        println("steps seen: $seenSteps, frames: ${seenFrames.size}")
+        assertEquals(job.errorMessage, ImageJobStatus.SUCCEEDED, job.status)
+        assertTrue("saw several steps", seenSteps.size >= 3)
+        assertTrue("saw several frames", seenFrames.size >= 3)
+        assertTrue("frames removed after", File(filesDir, ImagePreviewStore.ROOT).listFiles().orEmpty().isEmpty())
     }
 }

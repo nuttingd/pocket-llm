@@ -180,8 +180,8 @@ Each phase is releasable. Image models only behave differently once Phase 3 land
 - **Poll rate:** measure the preview payload size and tune the poll interval (research R7).
 - **Tests:**
   - `given step unchanged then no DB write or preview write`
-  - `given preview disabled then request omits preview`
-  - `given server without proj preview mode then preview omitted and progress still reported`
+  - `given server without proj preview mode then preview omitted and progress indeterminate` (sd-server reports steps only alongside a preview; see research R7)
+  - `given live preview off then progress recorded but no frame kept`
   - describe-status formatting
 
 ### Phase 6: Parameters (Story 4) · `feat(image): image generation parameters`

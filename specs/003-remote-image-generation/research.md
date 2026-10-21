@@ -172,6 +172,14 @@ Each poll returns the latest frame as a base64 PNG, possibly at full resolution,
 
 **Decision:** request `proj` only, never `tae` or `vae`. Polling every second costs about 16 KB/s, which is negligible.
 
+**Finding (measured the same day):** sd-server reports `preview.{pass,step,total_steps}` only when a preview is requested. Without one, every poll of a generating job has `preview: null`, so there's no step progress at all.
+
+**Consequences:**
+- Request `proj` whenever the server lists it, because it's the only source of step progress.
+- The "Live preview" setting controls only whether frames are kept and shown, not the request. Turning it off keeps the step bar and costs the same ~16 KB per poll.
+- A server without `proj` shows an indeterminate bar plus elapsed time.
+- Each frame is a new file under `cacheDir/image-previews/` (`<jobId>_<pass>-<step>.png`), written only when the step changes; older frames are deleted. All of a job's frames are removed when its run ends.
+
 ## R8. Latency and timeouts
 
 **Expected latency (extrapolated):** Qwen-Image-2.1 on sd.cpp with a 24 GB GPU at 1024²:
