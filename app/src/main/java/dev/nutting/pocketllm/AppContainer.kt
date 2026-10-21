@@ -7,20 +7,24 @@ import dev.nutting.pocketllm.data.preferences.EncryptedDataStore
 import dev.nutting.pocketllm.data.preferences.SettingsDataStore
 import dev.nutting.pocketllm.data.remote.OpenAiApiClient
 import dev.nutting.pocketllm.data.remote.huggingface.HuggingFaceClient
+import dev.nutting.pocketllm.data.remote.image.OpenAiImagesClient
+import dev.nutting.pocketllm.data.remote.image.SdCppImageClient
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.GenerationManager
-import dev.nutting.pocketllm.domain.image.ImageStore
 import dev.nutting.pocketllm.domain.LocalLlmClient
+import dev.nutting.pocketllm.domain.image.ImageStore
+import dev.nutting.pocketllm.domain.image.ModelClassifier
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import java.io.File
+import kotlinx.coroutines.flow.first
 
 class AppContainer(context: Context) {
 
@@ -60,6 +64,15 @@ class AppContainer(context: Context) {
     val imageJobDao = database.imageJobDao()
     val generatedImageDao = database.generatedImageDao()
     val modelClassificationDao = database.modelClassificationDao()
+
+    // Remote image generation
+    val sdCppImageClient = SdCppImageClient()
+    val openAiImagesClient = OpenAiImagesClient()
+    val modelClassifier = ModelClassifier(
+        sdCpp = sdCppImageClient,
+        dao = modelClassificationDao,
+        apiKey = { serverId -> serverRepository.getApiKey(serverId).first() },
+    )
 
     // Local LLM
     val modelsDir: File = File(context.getExternalFilesDir(null), "models").also { it.mkdirs() }
