@@ -50,4 +50,16 @@ data class ChatUiState(
     val localModelState: LocalModelState = LocalModelState.NotLoaded,
     /** When the pending reply was requested (epoch ms), for showing elapsed time. */
     val streamStartedAtMs: Long? = null,
-)
+    // Image generation
+    /** Image replies in this conversation by assistant message id. */
+    val imageReplies: Map<String, ImageReplyState> = emptyMap(),
+    /** The selected server is an image server (stable-diffusion.cpp), so its models generate images by default. */
+    val imageServerDetected: Boolean = false,
+    /** The user's "generates images" choices for the selected server's models. */
+    val imageModelOverrides: Map<String, Boolean> = emptyMap(),
+) {
+    fun isImageModel(modelId: String?): Boolean =
+        modelId != null && !useLocalModel && (imageModelOverrides[modelId] ?: imageServerDetected)
+
+    val selectedModelIsImage: Boolean get() = isImageModel(selectedModelId)
+}

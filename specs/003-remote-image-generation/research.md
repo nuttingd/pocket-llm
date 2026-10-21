@@ -163,6 +163,15 @@ Each poll returns the latest frame as a base64 PNG, possibly at full resolution,
 - Provide a "Live preview" toggle (default on).
 - Measure in the progress PR, and lower the poll rate if payloads are large.
 
+**Measured on 2026-10-21** against sd-server `a77d362` with SDXS-512 Q8, at 512², 8 steps, on a 4-core CPU:
+
+| Preview mode | Payload per poll (base64) | Generation time |
+|---|---|---|
+| `proj` | about 16 KB | 30.6 s |
+| `tae` | about 600 KB, full resolution | 51.6 s, roughly 70% slower |
+
+**Decision:** request `proj` only, never `tae` or `vae`. Polling every second costs about 16 KB/s, which is negligible.
+
 ## R8. Latency and timeouts
 
 **Expected latency (extrapolated):** Qwen-Image-2.1 on sd.cpp with a 24 GB GPU at 1024²:

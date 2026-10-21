@@ -20,4 +20,6 @@ data class EditingServer(
     val baseUrl: String = "",
     val apiKey: String = "",
     val requestTimeoutSeconds: Int = 120,
+    /** Overall limit for one image generation; far longer than a chat reply. */
+    val imageTimeoutMinutes: Int = 30,
 )

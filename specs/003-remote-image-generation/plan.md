@@ -30,7 +30,7 @@ their own parameter sheet. Editing reuses the existing attachment flow and sends
 | Principle | Status | Notes |
 |---|---|---|
 | I. MVVM-Compose single module | ✅ | All code in `app/`, new packages `domain/image`, `data/remote/image`. UI state stays in `ChatUiState` and the existing settings/server UI states. The worker holds no UI references |
-| II. Simplicity / no premature abstraction | ⚠️ justified | **One** interface, `ImageServerClient`, with **two** real implementations (SD_CPP, OPENAI_IMAGES). `ImageJobRunner` is split from the Worker *only* so the job logic is testable without WorkManager. Three new tables (see Complexity Tracking). llama-swap metadata detection is deferred (YAGNI) |
+| II. Simplicity / no premature abstraction | ⚠️ justified | No shared client interface: the two dialects have different shapes (submit/poll/cancel vs one call), so `ImageJobRunner` branches on the dialect *(changed in Phase 2; the first draft had an `ImageServerClient` interface)*. The one interface is `ImageJobScheduler` (WorkManager in the app, a fake in tests). `ImageJobRunner` is split from the Worker *only* so the job logic is testable without WorkManager. Three new tables (see Complexity Tracking). llama-swap metadata detection is deferred (YAGNI) |
 | III. Test value over volume | ✅ | Tests target the contracts (parsing and request shape), the job state machine and recovery, file safety, the migration, and the chat-history placeholder. No tests for trivial UI |
 | IV. Conventional Commits | ✅ | One `feat(image): …` PR per phase; each releases as a minor version |
 | V. Accessibility-first | ✅ | Images described by their prompt; progress `liveRegion=Polite` announced only at phase changes; 48dp actions; zoom viewer has Close and action buttons, not gesture-only |
@@ -75,7 +75,7 @@ app/src/main/java/dev/nutting/pocketllm/
 │   ├── dao/    ImageJobDao.kt, GeneratedImageDao.kt, ModelClassificationDao.kt            (new)
 │   └── PocketLlmDatabase.kt          (v7, MIGRATION_6_7)
 ├── data/remote/image/                                                                     (new)
-│   ├── ImageServerClient.kt          (interface + ImageDialect, ImageResult, JobSnapshot, ImageApiException)
+│   ├── ImageHttp.kt                  (ImageApiException, error-shape normalisation, shared HTTP client)
 │   ├── SdCppImageClient.kt           (A1–A4)
 │   ├── OpenAiImagesClient.kt         (B1–B3)
 │   └── ImageApiModels.kt             (@Serializable request/response DTOs)
@@ -227,7 +227,7 @@ Each phase is releasable. Image models only behave differently once Phase 3 land
 | `image_jobs` table | Job state must survive the process dying and drive the UI after re-entry (FR-006) | In-memory state (`GenerationManager`) dies with the process |
 | `generated_images` table | Metadata (seed, size, params) for captions, reuse seed and placeholders; cascade deletes | Paths in `messages.imageUris`: no metadata, and it overloads a column meant for user attachments |
 | `model_classifications` table | User overrides per (server, model) | DataStore keyed strings: no cascade when a server is deleted, and awkward to query |
-| `ImageServerClient` interface | Two real dialects with different transports (async poll vs synchronous) | A single client with branches would mix two protocols' error handling |
+| `ImageJobScheduler` interface | Lets `ImageJobLauncher` be tested without WorkManager | Testing through WorkManager's test utilities is heavier and slower |
 | `ImageJobRunner` split from the Worker | Unit-test the state machine without WorkManager | Testing through `TestListenableWorkerBuilder` is heavier and still needs the same fakes |
 
 ## Out of scope

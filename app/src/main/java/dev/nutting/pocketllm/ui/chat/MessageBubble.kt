@@ -74,7 +74,11 @@ fun MessageBubble(
     onDelete: ((MessageEntity) -> Unit)? = null,
     branchInfo: BranchInfo? = null,
     onNavigateBranch: ((String, Int) -> Unit)? = null,
+    /** Set when this assistant reply is generated images rather than text. */
+    imageReply: ImageReplyState? = null,
+    imageActions: ImageReplyActions? = null,
 ) {
+    val imagePrompt = imageReply?.let { it.job?.prompt ?: it.images.firstOrNull()?.prompt }
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     val isUser = message.role == "user"
     val isTool = message.role == "tool"
@@ -125,7 +129,11 @@ fun MessageBubble(
                         onLongClick = { showMenu = true },
                     )
                     .semantics {
-                        contentDescription = "${if (isUser) "You" else "Assistant"}: ${message.content}"
+                        contentDescription = if (imagePrompt != null) {
+                            "Assistant: image for \"$imagePrompt\""
+                        } else {
+                            "${if (isUser) "You" else "Assistant"}: ${message.content}"
+                        }
                     },
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -157,6 +165,8 @@ fun MessageBubble(
                             contentScale = ContentScale.Crop,
                         )
                     }
+                } else if (imageReply != null && imageActions != null) {
+                    ImageReplyContent(state = imageReply, actions = imageActions)
                 } else {
                     val isDark = isSystemInDarkTheme()
                     val codeBackground = if (isDark) {
@@ -190,7 +200,7 @@ fun MessageBubble(
                 expanded = showMenu,
                 onDismiss = { showMenu = false },
                 isUser = isUser,
-                onCopy = { onCopy?.invoke(message.content); showMenu = false },
+                onCopy = { onCopy?.invoke(imagePrompt ?: message.content); showMenu = false },
                 onRegenerate = { onRegenerate?.invoke(message); showMenu = false },
                 onEdit = { onEdit?.invoke(message); showMenu = false },
                 onDelete = { onDelete?.invoke(message); showMenu = false },

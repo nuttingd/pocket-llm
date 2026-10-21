@@ -9,6 +9,7 @@ import dev.nutting.pocketllm.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -16,6 +17,8 @@ import java.util.UUID
 class ServerConfigViewModel(
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
+    /** Re-detects whether a server generates images (after it's saved or tested); null when unknown. */
+    private val detectImageServer: suspend (ServerProfileEntity) -> String? = { null },
 ) : ViewModel() {
 
     companion object {
@@ -45,6 +48,7 @@ class ServerConfigViewModel(
                     name = server.name,
                     baseUrl = server.baseUrl,
                     requestTimeoutSeconds = server.requestTimeoutSeconds,
+                    imageTimeoutMinutes = server.imageTimeoutSeconds / 60,
                 ),
             )
         }
@@ -76,6 +80,7 @@ class ServerConfigViewModel(
                     baseUrl = editing.baseUrl.trimEnd('/'),
                     hasApiKey = editing.apiKey.isNotBlank(),
                     requestTimeoutSeconds = editing.requestTimeoutSeconds,
+                    imageTimeoutSeconds = editing.imageTimeoutMinutes.coerceIn(1, 24 * 60) * 60,
                     createdAt = now,
                     updatedAt = now,
                 )
@@ -92,6 +97,8 @@ class ServerConfigViewModel(
 
                 settingsRepository.setLastActiveServerId(id)
                 _uiState.update { it.copy(editingServer = null, isLoading = false) }
+                // The URL may have changed, so what kind of server this is may have too
+                detectImageServer(profile)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save server", e)
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
@@ -111,11 +118,16 @@ class ServerConfigViewModel(
             val result = serverRepository.validateConnection(serverId)
             result.fold(
                 onSuccess = { models ->
+                    val imageServer = serverRepository.getById(serverId).first()?.let { detectImageServer(it) }
                     _uiState.update {
                         it.copy(
                             models = models,
                             isTesting = false,
-                            testResult = "Connected — ${models.size} model(s) available",
+                            testResult = if (imageServer != null) {
+                                "Connected — image server ($imageServer)"
+                            } else {
+                                "Connected — ${models.size} model(s) available"
+                            },
                         )
                     }
                 },

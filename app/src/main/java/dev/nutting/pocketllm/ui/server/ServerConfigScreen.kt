@@ -255,6 +255,18 @@ private fun ServerEditForm(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
+        OutlinedTextField(
+            value = editing.imageTimeoutMinutes.takeIf { it > 0 }?.toString() ?: "",
+            onValueChange = { value ->
+                onUpdate(editing.copy(imageTimeoutMinutes = value.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0))
+            },
+            label = { Text("Image generation timeout") },
+            suffix = { Text("minutes") },
+            supportingText = { Text("How long one image may take before it's given up on") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,

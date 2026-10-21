@@ -32,7 +32,13 @@ class ConversationListViewModel(
                 val summaries = conversations.map { conv ->
                     val preview = conv.activeLeafMessageId?.let { leafId ->
                         val branch = messageRepository.getActiveBranch(leafId).first()
-                        branch.lastOrNull()?.content?.take(80)
+                        val last = branch.lastOrNull()
+                        // Image replies have no text; show what was asked for instead of a blank line
+                        if (last?.role == "assistant" && last.content.isBlank()) {
+                            branch.getOrNull(branch.size - 2)?.takeIf { it.role == "user" }?.let { "Image: ${it.content}".take(80) }
+                        } else {
+                            last?.content?.take(80)
+                        }
                     }
                     ConversationSummary(
                         id = conv.id,
