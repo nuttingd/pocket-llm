@@ -13,6 +13,7 @@ import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.GenerationManager
+import dev.nutting.pocketllm.domain.image.ImageStore
 import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
@@ -37,8 +38,12 @@ class AppContainer(context: Context) {
         apiClient = apiClient,
     )
 
+    /** Generated images are files under filesDir/images, referenced from the generated_images table. */
+    val imageStore = ImageStore(context.filesDir)
+
     val conversationRepository = ConversationRepository(
         dao = database.conversationDao(),
+        imageStore = imageStore,
     )
 
     val messageRepository = MessageRepository(
@@ -52,6 +57,9 @@ class AppContainer(context: Context) {
     val toolDefinitionDao = database.toolDefinitionDao()
     val parameterPresetDao = database.parameterPresetDao()
     val compactionSummaryDao = database.compactionSummaryDao()
+    val imageJobDao = database.imageJobDao()
+    val generatedImageDao = database.generatedImageDao()
+    val modelClassificationDao = database.modelClassificationDao()
 
     // Local LLM
     val modelsDir: File = File(context.getExternalFilesDir(null), "models").also { it.mkdirs() }

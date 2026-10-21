@@ -8,15 +8,21 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
 import dev.nutting.pocketllm.data.local.dao.ConversationDao
+import dev.nutting.pocketllm.data.local.dao.GeneratedImageDao
+import dev.nutting.pocketllm.data.local.dao.ImageJobDao
 import dev.nutting.pocketllm.data.local.dao.MessageDao
+import dev.nutting.pocketllm.data.local.dao.ModelClassificationDao
 import dev.nutting.pocketllm.data.local.dao.ServerProfileDao
 import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
+import dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity
+import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.MessageFts
+import dev.nutting.pocketllm.data.local.entity.ModelClassificationEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
@@ -31,8 +37,11 @@ import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
         ToolDefinitionEntity::class,
         ConversationToolEnabledEntity::class,
         ParameterPresetEntity::class,
+        ImageJobEntity::class,
+        GeneratedImageEntity::class,
+        ModelClassificationEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class PocketLlmDatabase : RoomDatabase() {
@@ -42,6 +51,9 @@ abstract class PocketLlmDatabase : RoomDatabase() {
     abstract fun compactionSummaryDao(): CompactionSummaryDao
     abstract fun toolDefinitionDao(): ToolDefinitionDao
     abstract fun parameterPresetDao(): ParameterPresetDao
+    abstract fun imageJobDao(): ImageJobDao
+    abstract fun generatedImageDao(): GeneratedImageDao
+    abstract fun modelClassificationDao(): ModelClassificationDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -177,13 +189,34 @@ abstract class PocketLlmDatabase : RoomDatabase() {
             }
         }
 
+        /** Image generation: jobs, generated image metadata (files live on disk), and image-model overrides. */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `server_profiles` ADD COLUMN `imageTimeoutSeconds` INTEGER NOT NULL DEFAULT 1800")
+                db.execSQL("ALTER TABLE `conversations` ADD COLUMN `imageParamsJson` TEXT DEFAULT NULL")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `image_jobs` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `messageId` TEXT NOT NULL, `serverId` TEXT NOT NULL, `modelId` TEXT NOT NULL, `dialect` TEXT NOT NULL, `kind` TEXT NOT NULL, `prompt` TEXT NOT NULL, `paramsJson` TEXT NOT NULL, `sourceMessageId` TEXT, `remoteJobId` TEXT, `status` TEXT NOT NULL, `queuePosition` INTEGER, `pass` INTEGER, `step` INTEGER, `totalSteps` INTEGER, `previewPath` TEXT, `errorCode` TEXT, `errorMessage` TEXT, `createdAt` INTEGER NOT NULL, `startedAt` INTEGER, `completedAt` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_image_jobs_conversationId` ON `image_jobs` (`conversationId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_image_jobs_messageId` ON `image_jobs` (`messageId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_image_jobs_status` ON `image_jobs` (`status`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `generated_images` (`id` TEXT NOT NULL, `messageId` TEXT NOT NULL, `idx` INTEGER NOT NULL, `filePath` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `seed` INTEGER, `prompt` TEXT NOT NULL, `paramsJson` TEXT NOT NULL, `modelId` TEXT NOT NULL, `durationMs` INTEGER, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_generated_images_messageId_idx` ON `generated_images` (`messageId`, `idx`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `model_classifications` (`serverId` TEXT NOT NULL, `modelId` TEXT NOT NULL, `isImageModel` INTEGER NOT NULL, PRIMARY KEY(`serverId`, `modelId`), FOREIGN KEY(`serverId`) REFERENCES `server_profiles`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+            }
+        }
+
         fun create(context: Context): PocketLlmDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 PocketLlmDatabase::class.java,
                 "pocket_llm.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         seedBuiltInTools(db)
