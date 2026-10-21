@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,8 +21,6 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
-import androidx.core.content.FileProvider
-import java.io.File
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -36,15 +36,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import coil3.compose.rememberAsyncImagePainter
+import java.io.File
 
 @Composable
 fun MessageInput(
@@ -53,10 +56,25 @@ fun MessageInput(
     onStopGeneration: () -> Unit,
     modifier: Modifier = Modifier,
     onSendMessageWithImages: ((String, List<Uri>) -> Unit)? = null,
+    /** An image to attach now (e.g. from "Edit" on a generated image); [onAttachmentConsumed] clears it. */
+    pendingAttachment: Uri? = null,
+    onAttachmentConsumed: () -> Unit = {},
+    /** Image models need an instruction with attachments, so Send waits for text. */
+    textRequiredWithImages: Boolean = false,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     val attachedImages = remember { mutableStateListOf<Uri>() }
     val context = LocalContext.current
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(pendingAttachment) {
+        val uri = pendingAttachment ?: return@LaunchedEffect
+        if (uri !in attachedImages) attachedImages.add(uri)
+        onAttachmentConsumed()
+        // Ready for the instruction ("make it night time")
+        runCatching { focusRequester.requestFocus() }
+    }
+    val canSend = text.isNotBlank() || (attachedImages.isNotEmpty() && !textRequiredWithImages)
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents(),
@@ -133,8 +151,11 @@ fun MessageInput(
                     onValueChange = { text = it },
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 8.dp),
-                    placeholder = { Text("Type a message...") },
+                        .padding(end = 8.dp)
+                        .focusRequester(focusRequester),
+                    placeholder = {
+                        Text(if (textRequiredWithImages && attachedImages.isNotEmpty()) "Describe the change…" else "Type a message...")
+                    },
                     enabled = !isStreaming,
                     maxLines = 6,
                 )
@@ -154,7 +175,7 @@ fun MessageInput(
                 } else {
                     IconButton(
                         onClick = {
-                            if (text.isNotBlank() || attachedImages.isNotEmpty()) {
+                            if (canSend) {
                                 if (attachedImages.isNotEmpty() && onSendMessageWithImages != null) {
                                     onSendMessageWithImages(text.trim(), attachedImages.toList())
                                 } else {
@@ -164,7 +185,7 @@ fun MessageInput(
                                 attachedImages.clear()
                             }
                         },
-                        enabled = text.isNotBlank() || attachedImages.isNotEmpty(),
+                        enabled = canSend,
                         modifier = Modifier
                             .size(48.dp)
                             .semantics { contentDescription = "Send message" },

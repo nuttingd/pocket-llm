@@ -141,11 +141,16 @@ fun ChatScreen(
     }
 
     var viewingImage by remember { mutableStateOf<dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity?>(null) }
+    var imageToEdit by remember { mutableStateOf<android.net.Uri?>(null) }
     viewingImage?.let { image ->
         dev.nutting.pocketllm.ui.image.ImageViewer(
             image = image,
             onDismiss = { viewingImage = null },
             onReuseSeed = viewModel::reuseSeed,
+            onEdit = { file ->
+                imageToEdit = dev.nutting.pocketllm.ui.image.ImageExport.contentUri(context, file)
+                viewingImage = null
+            },
         )
     }
     val imageActions = remember(viewModel) {
@@ -278,6 +283,9 @@ fun ChatScreen(
                     onSendMessageWithImages = { text, uris ->
                         viewModel.sendMessageWithImages(text, uris, context)
                     },
+                    pendingAttachment = imageToEdit,
+                    onAttachmentConsumed = { imageToEdit = null },
+                    textRequiredWithImages = state.selectedModelIsImage,
                 )
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },

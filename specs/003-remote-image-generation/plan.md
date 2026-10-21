@@ -210,6 +210,8 @@ Each phase is releasable. Image models only behave differently once Phase 3 land
   - `given attachments with image model then EDIT job with source message`
   - `given generated image edit action then attached to input`
   - `given server error about vision then edit-support message shown`
+  - Also: an edit with no size set follows the photo's aspect ratio at ~1 MP; regenerate and retry of an edit reuse the same photo; an edit whose photo is gone fails as `source_missing`
+- **Not detectable:** a model that can't edit makes sd-server ignore `ref_images` silently (research R2), so the quickstart explains it.
 
 ## Risks & mitigations
 

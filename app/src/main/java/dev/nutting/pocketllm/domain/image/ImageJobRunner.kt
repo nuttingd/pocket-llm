@@ -68,13 +68,13 @@ class ImageJobRunner(
             throw e
         } catch (e: JobFailure) {
             Log.e(TAG, "Image job ${jobId.take(8)} failed: ${e.code}", e)
-            fail(jobId, e.code, e.message ?: "Image generation failed.")
+            fail(job, e.code, e.message ?: "Image generation failed.")
         } catch (e: ImageApiException) {
             Log.e(TAG, "Image job ${jobId.take(8)} failed: ${e.kind}", e)
-            fail(jobId, codeFor(e.kind), e.message ?: "Image generation failed.")
+            fail(job, codeFor(e.kind), e.message ?: "Image generation failed.")
         } catch (e: Exception) {
             Log.e(TAG, "Image job ${jobId.take(8)} failed unexpectedly", e)
-            fail(jobId, "unexpected", "Image generation failed: ${e.message ?: e::class.simpleName}")
+            fail(job, "unexpected", "Image generation failed: ${e.message ?: e::class.simpleName}")
         } finally {
             // Frames only matter while the job runs; a resumed run writes fresh ones
             previews?.deleteJob(jobId)
@@ -84,7 +84,7 @@ class ImageJobRunner(
     private suspend fun runSdCpp(job: ImageJobEntity, server: ServerProfileEntity, params: ResolvedImageParameters, deadline: Long) {
         val key = apiKey(server.id)
         val remoteId = job.remoteJobId ?: run {
-            val refImages = sourceImages(job).map { "data:${it.mimeType};base64," + java.util.Base64.getEncoder().encodeToString(it.bytes) }
+            val refImages = editSources(job).map { "data:${it.mimeType};base64," + java.util.Base64.getEncoder().encodeToString(it.bytes) }
             val id = sdCpp.submit(server.baseUrl, key, params.toSdCppRequest(job.prompt, refImages, previewMode(server)))
             if (jobs.markSubmitted(job.id, id) == 0) {
                 // Cancelled while submitting: stop the server job too if it hasn't started
@@ -195,7 +195,7 @@ class ImageJobRunner(
         val key = apiKey(server.id)
         val request = params.toOpenAiRequest(job.modelId, job.prompt)
         val images = if (job.kind == ImageJobKind.EDIT) {
-            openAi.edit(server.baseUrl, key, request, sourceImages(job).map { OpenAiImagesClient.InputImage(it.bytes, it.mimeType) }, remaining)
+            openAi.edit(server.baseUrl, key, request, editSources(job).map { OpenAiImagesClient.InputImage(it.bytes, it.mimeType) }, remaining)
         } else {
             openAi.generate(server.baseUrl, key, request, remaining)
         }
@@ -246,8 +246,16 @@ class ImageJobRunner(
         if (!committed) written.forEach(store::delete)
     }
 
-    private suspend fun fail(jobId: String, code: String, message: String) {
-        jobs.markFinishedUnsuccessfully(jobId, ImageJobStatus.FAILED, code, message, clock())
+    /** An edit's input images; an edit whose images are gone (e.g. its message was deleted) can't run. */
+    private suspend fun editSources(job: ImageJobEntity): List<SourceImage> {
+        if (job.kind != ImageJobKind.EDIT) return emptyList()
+        return sourceImages(job).ifEmpty { throw JobFailure("source_missing", "The image to edit is no longer available.") }
+    }
+
+    private suspend fun fail(job: ImageJobEntity, code: String, message: String) {
+        // Servers rarely say "I can't edit"; a rejected edit usually means the model or server lacks edit support
+        val text = if (job.kind == ImageJobKind.EDIT && code in EDIT_FAILURE_CODES) "$message $EDIT_HINT" else message
+        jobs.markFinishedUnsuccessfully(job.id, ImageJobStatus.FAILED, code, text, clock())
     }
 
     private class JobFailure(val code: String, message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -258,6 +266,10 @@ class ImageJobRunner(
         const val GENERATING_POLL_MS = 1_000L
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 30_000L
+        private val EDIT_FAILURE_CODES = setOf("server", "rejected", "bad_response")
+        const val EDIT_HINT = "Editing needs a model and server that support it (for Qwen-Image on stable-diffusion.cpp, " +
+            "start sd-server with the vision weights, --llm_vision)."
+
         /** How long the server may be unreachable before the job is given up on. */
         const val MAX_UNREACHABLE_MS = 2 * 60 * 1000L
 

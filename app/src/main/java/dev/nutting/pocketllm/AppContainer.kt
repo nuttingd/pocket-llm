@@ -23,6 +23,7 @@ import dev.nutting.pocketllm.domain.image.ImagePreviewStore
 import dev.nutting.pocketllm.domain.image.ImageStore
 import dev.nutting.pocketllm.domain.image.ModelClassifier
 import dev.nutting.pocketllm.domain.image.WorkManagerImageJobScheduler
+import dev.nutting.pocketllm.domain.image.loadEditSources
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
 import java.io.File
@@ -92,6 +93,7 @@ class AppContainer(context: Context) {
             "proj".takeIf { it in modelClassifier.serverInfo(server).capabilities?.previewModes.orEmpty() }
         },
         livePreview = { settingsRepository.getImageLivePreview().first() },
+        sourceImages = { job -> loadEditSources(database.messageDao(), job.sourceMessageId) },
     )
     val imageJobLauncher = ImageJobLauncher(
         db = database,

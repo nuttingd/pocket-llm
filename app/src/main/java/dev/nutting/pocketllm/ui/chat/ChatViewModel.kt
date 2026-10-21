@@ -450,13 +450,26 @@ class ChatViewModel(
         viewModelScope.launch { launcher.cancel(jobId) }
     }
 
-    private suspend fun sendImagePrompt(conversationId: String, prompt: String, server: ServerProfileEntity, modelId: String) {
+    private suspend fun sendImagePrompt(
+        conversationId: String,
+        prompt: String,
+        server: ServerProfileEntity,
+        modelId: String,
+        imageDataUrls: List<String>,
+    ) {
         val launcher = imageJobLauncher ?: return
         isFirstMessage = false
         try {
-            launcher.generate(conversationId, prompt.trim(), server, modelId)
+            if (imageDataUrls.isEmpty()) {
+                launcher.generate(conversationId, prompt.trim(), server, modelId)
+            } else {
+                launcher.edit(conversationId, prompt.trim(), imageDataUrls, server, modelId)
+            }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ImageJobLauncher.EditNotSupportedException) {
+            Log.e(TAG, "Image server can't edit", e)
+            _uiState.update { it.copy(error = e.message) }
         } catch (e: Exception) {
             Log.e(TAG, "Couldn't start image generation", e)
             _uiState.update { it.copy(error = "Couldn't start image generation: ${e.message}") }
@@ -599,7 +612,8 @@ class ChatViewModel(
 
     fun sendMessageWithImages(content: String, imageUris: List<Uri>, context: Context) {
         if (_uiState.value.selectedModelIsImage) {
-            _uiState.update { it.copy(error = "Editing images isn't supported yet. Send your prompt without attachments.") }
+            // Attachments sent to an image model are the images to edit
+            sendMessageInternal(content, imageUris.mapNotNull { ImageCompressor.compressAndEncode(context, it) })
             return
         }
         val modelId = _uiState.value.selectedModelId
@@ -665,7 +679,7 @@ class ChatViewModel(
             val server = state.selectedServer
             if (!isLocal && server != null && modelClassifier?.isImageModel(server, modelId) == true) {
                 _uiState.update { it.copy(error = null) }
-                sendImagePrompt(conversationId, content, server, modelId)
+                sendImagePrompt(conversationId, content, server, modelId, imageDataUrls)
                 return@launch
             }
 

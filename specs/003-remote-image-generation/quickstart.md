@@ -29,6 +29,8 @@ sd-server --listen-ip 0.0.0.0 --listen-port 8080 \
 
 - **`-s -1`:** use a random seed by default. The app always sends a seed anyway.
 - **`--llm_vision`:** enables editing.
+  - Without it, or with a model that can't edit, sd-server may simply ignore the attached photo and generate a new image from the prompt alone, without reporting an error.
+  - If an edit comes back unrelated to your photo, check this first.
 - **`--offload-to-cpu`:** add it on GPUs with 16 GB or less.
 - **Base model (not Turbo):** drop `--sigmas`, and use `--steps 20 --cfg-scale 6.0`.
 

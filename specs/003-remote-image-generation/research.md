@@ -63,6 +63,9 @@ That covers four of the five v1 stories with one protocol. The user runs a stand
 
 - Input images (`init_image`, `ref_images[]`, `mask_image`) are accepted as raw base64 or a data URL.
 - Qwen-Image 2.1 edits use `ref_images` and need the server started with the vision weights (`--llm_vision`).
+- **Measured on 2026-10-21:** `features_by_mode.img_gen.ref_images` is a server-wide `true`, not a per-model flag. A model that can't edit (SDXS) silently ignores `ref_images` and returns an ordinary text-to-image result, with no error.
+  - So the app can't know beforehand that an edit won't work. It refuses an edit only when the server explicitly reports `ref_images: false`.
+  - When a server does reject an edit, the app adds a hint about edit support and `--llm_vision`.
 - Output formats: `png`, `jpeg`, or `webp` only on WebP-enabled builds. `"jpg"` is rejected.
 
 **Limits and defaults**

@@ -3,6 +3,7 @@ package dev.nutting.pocketllm.ui.image
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
@@ -58,8 +59,11 @@ object ImageExport {
         }
     }
 
+    /** A content URI for a generated image, readable by other apps it's granted to (and by the app itself). */
+    fun contentUri(context: Context, file: File): Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+
     fun shareIntent(context: Context, file: File, mimeType: String, prompt: String): Intent {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val uri = contentUri(context, file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)

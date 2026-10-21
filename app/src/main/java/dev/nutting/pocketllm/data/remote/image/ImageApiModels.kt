@@ -28,8 +28,11 @@ data class SdCppCapabilities(
     fun supportsImgGen(): Boolean = IMG_GEN in supportedModes
 
     /** A boolean feature flag for image generation, e.g. `ref_images`, `cancel_queued`, `preview`. */
-    fun imgGenFeature(name: String): Boolean =
-        (featuresByMode[IMG_GEN]?.get(name) as? JsonPrimitive)?.booleanOrNull == true
+    fun imgGenFeature(name: String): Boolean = imgGenFeatureOrNull(name) == true
+
+    /** Like [imgGenFeature], but null when the server doesn't report the flag at all (e.g. an older build). */
+    fun imgGenFeatureOrNull(name: String): Boolean? =
+        (featuresByMode[IMG_GEN]?.get(name) as? JsonPrimitive)?.booleanOrNull
 
     companion object {
         const val IMG_GEN = "img_gen"
