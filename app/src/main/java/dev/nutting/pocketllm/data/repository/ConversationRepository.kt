@@ -2,11 +2,15 @@ package dev.nutting.pocketllm.data.repository
 
 import dev.nutting.pocketllm.data.local.dao.ConversationDao
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
+import dev.nutting.pocketllm.domain.image.ImageStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 class ConversationRepository(
     private val dao: ConversationDao,
+    private val imageStore: ImageStore? = null,
 ) {
     fun getAllSorted(): Flow<List<ConversationEntity>> = dao.getAllByUpdatedAt()
 
@@ -17,7 +21,11 @@ class ConversationRepository(
     suspend fun rename(id: String, title: String) =
         dao.updateTitle(id, title, System.currentTimeMillis())
 
-    suspend fun delete(id: String) = dao.deleteById(id)
+    /** Deletes the conversation (rows cascade) and its generated image files. */
+    suspend fun delete(id: String) {
+        dao.deleteById(id)
+        imageStore?.let { store -> withContext(Dispatchers.IO) { store.deleteConversation(id) } }
+    }
 
     suspend fun updateActiveLeaf(id: String, leafId: String?) =
         dao.updateActiveLeaf(id, leafId, System.currentTimeMillis())

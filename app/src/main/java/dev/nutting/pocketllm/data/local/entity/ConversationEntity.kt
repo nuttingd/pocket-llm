@@ -33,6 +33,8 @@ data class ConversationEntity(
     val frequencyPenalty: Float? = null,
     val presencePenalty: Float? = null,
     val activeLeafMessageId: String? = null,
+    /** Image generation parameters (JSON); null means server defaults. */
+    @ColumnInfo(defaultValue = "NULL") val imageParamsJson: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

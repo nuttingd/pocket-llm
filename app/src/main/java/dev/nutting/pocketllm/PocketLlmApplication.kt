@@ -2,6 +2,9 @@ package dev.nutting.pocketllm
 
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class PocketLlmApplication : Application() {
 
@@ -11,6 +14,7 @@ class PocketLlmApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        sweepOrphanedImages()
 
         // Unload local LLM on memory pressure to prevent OOM. These callbacks run on the main thread, so
         // releaseMemory() unloads in the background. UI_HIDDEN (screen lock / app switch) is ignored so the
@@ -33,5 +37,16 @@ class PocketLlmApplication : Application() {
 
             override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
         })
+    }
+
+    /** Removes image files left behind by deleted messages or interrupted saves. */
+    private fun sweepOrphanedImages() {
+        container.applicationScope.launch(Dispatchers.IO) {
+            try {
+                container.imageStore.sweepOrphans(container.generatedImageDao.getAllFilePaths().toSet())
+            } catch (e: Exception) {
+                Log.w("PocketLlmApplication", "Image orphan sweep failed; it will run again next start", e)
+            }
+        }
     }
 }

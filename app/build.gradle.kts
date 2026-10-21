@@ -52,6 +52,15 @@ android {
         buildConfig = true
     }
 
+    // Room schema JSONs for MigrationTestHelper. Robolectric reads the tested variant's merged assets (not the
+    // test source set's), so they're attached to debug only; release builds don't include them.
+    sourceSets {
+        getByName("debug").assets.srcDir("$projectDir/schemas")
+    }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildTypes {
         getByName("release") {
             signingConfig = try {
