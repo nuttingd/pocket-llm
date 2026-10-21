@@ -43,6 +43,7 @@ import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
 import dev.nutting.pocketllm.data.local.entity.ImageJobStatus
 import dev.nutting.pocketllm.data.remote.image.imageJson
 import dev.nutting.pocketllm.domain.image.ResolvedImageParameters
+import dev.nutting.pocketllm.domain.image.describeImageJob
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -55,28 +56,6 @@ class ImageReplyActions(
     val onRetry: (jobId: String) -> Unit,
     val onCancel: (jobId: String) -> Unit,
 )
-
-/** Phase text (announced on change), optional detail, and a progress fraction (null = indeterminate). */
-internal data class ImageStatusText(val phase: String, val detail: String? = null, val progress: Float? = null)
-
-internal fun describeImageJob(job: ImageJobEntity): ImageStatusText = when (job.status) {
-    ImageJobStatus.QUEUED_LOCAL -> ImageStatusText("Starting…")
-    ImageJobStatus.SUBMITTED -> ImageStatusText(job.queuePosition?.takeIf { it > 0 }?.let { "Queued (position $it)" } ?: "Queued")
-    ImageJobStatus.GENERATING -> {
-        val step = job.step
-        val total = job.totalSteps
-        if (step != null && total != null && total > 0) {
-            val pass = job.pass?.takeIf { it > 1 }?.let { " · pass $it" } ?: ""
-            ImageStatusText("Generating", "Step $step of $total$pass", (step.toFloat() / total).coerceIn(0f, 1f))
-        } else {
-            ImageStatusText("Generating")
-        }
-    }
-    ImageJobStatus.SAVING -> ImageStatusText("Saving…")
-    ImageJobStatus.SUCCEEDED -> ImageStatusText("Done")
-    ImageJobStatus.FAILED -> ImageStatusText("Couldn't generate the image", job.errorMessage)
-    ImageJobStatus.CANCELLED -> ImageStatusText("Cancelled", job.errorMessage?.takeIf { it != "Cancelled." })
-}
 
 /** "1024×1024 · 8 steps · seed 4417 · 48s": the settings worth knowing to reproduce an image. */
 internal fun imageCaption(image: GeneratedImageEntity): String {

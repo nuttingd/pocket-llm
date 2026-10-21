@@ -194,5 +194,8 @@ Each poll returns the latest frame as a base64 PNG, possibly at full resolution,
 - **Save to gallery:** MediaStore `RELATIVE_PATH = Pictures/Pocket LLM` on API 29+. API 28 (our minSdk) needs `WRITE_EXTERNAL_STORAGE` with `maxSdkVersion="28"` and a runtime request at save time.
 - **Share:** the existing `FileProvider`. Add `<files-path name="images" path="images/"/>` to `file_paths.xml`.
 - **Notifications:** `POST_NOTIFICATIONS` is already declared. Request it at the first generation on API 33+. Work continues if it's denied.
+  - The prompt is shown only while Android would show it for the first time (no rationale due yet), so a user who said no isn't asked on every send.
+  - Each job has its own ongoing notification (low-importance `image_generation` channel), with a Cancel action handled by `ImageJobActionReceiver`.
+  - Results go to a separate default-importance `image_results` channel, so users can silence progress without missing results. They're posted only when the app isn't in the foreground, because otherwise the reply already shows the result. A user's own cancel isn't announced.
 - **Full-screen zoom:** Compose `transformable` modifier; no new library.
 - **Deep link from the completion notification:** a `MainActivity` intent extra with the conversation id, handled by `AppNavGraph`.
