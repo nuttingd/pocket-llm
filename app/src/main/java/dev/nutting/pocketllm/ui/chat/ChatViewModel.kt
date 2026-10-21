@@ -1,57 +1,60 @@
 package dev.nutting.pocketllm.ui.chat
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dev.nutting.pocketllm.data.local.entity.ConversationEntity
-import dev.nutting.pocketllm.data.local.entity.MessageEntity
-import dev.nutting.pocketllm.data.repository.ConversationRepository
-import dev.nutting.pocketllm.data.repository.MessageRepository
-import dev.nutting.pocketllm.data.remote.ApiException
-import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
+import dev.nutting.pocketllm.data.local.dao.GeneratedImageDao
+import dev.nutting.pocketllm.data.local.dao.ImageJobDao
 import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
-import android.content.Context
-import android.net.Uri
+import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.ConversationToolEnabledEntity
+import dev.nutting.pocketllm.data.local.entity.ImageDialect
+import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
+import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
+import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.model.DownloadStatus
 import dev.nutting.pocketllm.data.local.model.LocalModelStore
+import dev.nutting.pocketllm.data.remote.ApiException
+import dev.nutting.pocketllm.data.remote.image.imageJson
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
-import dev.nutting.pocketllm.util.ImageCompressor
+import dev.nutting.pocketllm.data.repository.ConversationRepository
+import dev.nutting.pocketllm.data.repository.MessageRepository
+import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ActiveGeneration
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.GenerationManager
 import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.domain.TitleRequest
+import dev.nutting.pocketllm.domain.image.ImageJobLauncher
+import dev.nutting.pocketllm.domain.image.ImageParameters
+import dev.nutting.pocketllm.domain.image.ImageServerInfo
+import dev.nutting.pocketllm.domain.image.ModelClassifier
+import dev.nutting.pocketllm.domain.image.describeImageReplies
+import dev.nutting.pocketllm.util.ImageCompressor
 import dev.nutting.pocketllm.util.TokenCounter
+import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import dev.nutting.pocketllm.data.local.dao.GeneratedImageDao
-import dev.nutting.pocketllm.data.local.dao.ImageJobDao
-import dev.nutting.pocketllm.data.local.entity.ImageDialect
-import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
-import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
-import dev.nutting.pocketllm.domain.image.ImageJobLauncher
-import dev.nutting.pocketllm.domain.image.ModelClassifier
-import dev.nutting.pocketllm.domain.image.describeImageReplies
-import kotlinx.coroutines.flow.combine
-import kotlin.coroutines.cancellation.CancellationException
-import java.util.UUID
 
 class ChatViewModel(
     private val chatManager: ChatManager,
@@ -125,7 +128,7 @@ class ChatViewModel(
             }
         } else {
             isFirstMessage = true
-            _uiState.update { it.copy(conversationParams = ConversationParameters()) }
+            _uiState.update { it.copy(conversationParams = ConversationParameters(), imageParams = ImageParameters()) }
             // Check if there's an active local model to use by default
             viewModelScope.launch {
                 val activeId = localModelStore?.activeModelId?.first()
@@ -224,7 +227,8 @@ class ChatViewModel(
                         topP = conversation.topP,
                         frequencyPenalty = conversation.frequencyPenalty,
                         presencePenalty = conversation.presencePenalty,
-                    )
+                    ),
+                    imageParams = decodeImageParams(conversation.imageParamsJson),
                 )
             }
         }
@@ -381,15 +385,19 @@ class ChatViewModel(
                 .distinctUntilChanged { a, b -> a?.id == b?.id && a?.baseUrl == b?.baseUrl }
                 .flatMapLatest { server ->
                     if (server == null) {
-                        flowOf(false to emptyMap())
+                        flowOf<Pair<ImageServerInfo?, Map<String, Boolean>>>(null to emptyMap())
                     } else {
-                        classifier.overrides(server.id).map { overrides ->
-                            (classifier.serverInfo(server).dialect == ImageDialect.SD_CPP) to overrides
-                        }
+                        classifier.overrides(server.id).map { overrides -> classifier.serverInfo(server) to overrides }
                     }
                 }
-                .collect { (detected, overrides) ->
-                    _uiState.update { it.copy(imageServerDetected = detected, imageModelOverrides = overrides) }
+                .collect { (info, overrides) ->
+                    _uiState.update {
+                        it.copy(
+                            imageServerDetected = info?.dialect == ImageDialect.SD_CPP,
+                            imageCapabilities = info?.capabilities,
+                            imageModelOverrides = overrides,
+                        )
+                    }
                 }
         }
     }
@@ -404,6 +412,24 @@ class ChatViewModel(
             classifier.setOverride(server.id, modelId, isImageModel?.takeIf { it != detected })
         }
     }
+
+    /** Saves this conversation's image settings; a new chat keeps them until its first prompt creates it. */
+    fun updateImageParams(params: ImageParameters) {
+        _uiState.update { it.copy(imageParams = params) }
+        val conversationId = _uiState.value.conversationId ?: return
+        viewModelScope.launch { conversationRepository.updateImageParams(conversationId, encodeImageParams(params)) }
+    }
+
+    /** Uses [seed] for the next images, so a liked image can be reproduced or varied. */
+    fun reuseSeed(seed: Long) {
+        updateImageParams(_uiState.value.imageParams.copy(seed = seed))
+    }
+
+    private fun decodeImageParams(json: String?): ImageParameters =
+        json?.let { runCatching { imageJson.decodeFromString(ImageParameters.serializer(), it) }.getOrNull() } ?: ImageParameters()
+
+    private fun encodeImageParams(params: ImageParameters): String? =
+        params.takeIf { it != ImageParameters() }?.let { imageJson.encodeToString(ImageParameters.serializer(), it) }
 
     fun retryImage(jobId: String) {
         val launcher = imageJobLauncher ?: return
@@ -625,6 +651,7 @@ class ChatViewModel(
                         title = title,
                         lastServerProfileId = if (isLocal) null else serverId,
                         lastModelId = modelId,
+                        imageParamsJson = encodeImageParams(state.imageParams),
                         createdAt = now,
                         updatedAt = now,
                     )

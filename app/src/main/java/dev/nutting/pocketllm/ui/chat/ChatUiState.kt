@@ -6,9 +6,11 @@ import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
 import dev.nutting.pocketllm.data.local.model.LocalModel
+import dev.nutting.pocketllm.data.remote.image.SdCppCapabilities
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
 import dev.nutting.pocketllm.data.remote.model.ToolCall
 import dev.nutting.pocketllm.domain.LocalModelState
+import dev.nutting.pocketllm.domain.image.ImageParameters
 import dev.nutting.pocketllm.llm.InferenceStatus
 
 data class ChatUiState(
@@ -57,6 +59,10 @@ data class ChatUiState(
     val imageServerDetected: Boolean = false,
     /** The user's "generates images" choices for the selected server's models. */
     val imageModelOverrides: Map<String, Boolean> = emptyMap(),
+    /** This conversation's image settings (null fields = server defaults). */
+    val imageParams: ImageParameters = ImageParameters(),
+    /** What the selected image server offers (samplers, limits, defaults), when it's stable-diffusion.cpp. */
+    val imageCapabilities: SdCppCapabilities? = null,
 ) {
     fun isImageModel(modelId: String?): Boolean =
         modelId != null && !useLocalModel && (imageModelOverrides[modelId] ?: imageServerDetected)
