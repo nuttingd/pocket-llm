@@ -22,6 +22,9 @@ interface ImageJobDao {
     @Query("SELECT * FROM image_jobs WHERE id = :id")
     suspend fun getById(id: String): ImageJobEntity?
 
+    @Query("SELECT * FROM image_jobs WHERE id = :id")
+    fun observeById(id: String): Flow<ImageJobEntity?>
+
     @Query("SELECT * FROM image_jobs WHERE messageId = :messageId")
     suspend fun getByMessageId(messageId: String): ImageJobEntity?
 

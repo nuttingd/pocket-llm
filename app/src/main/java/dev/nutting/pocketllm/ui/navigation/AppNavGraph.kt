@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +32,9 @@ import dev.nutting.pocketllm.ui.setup.SetupScreen
 fun AppNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
+    /** A conversation to show now (e.g. from a notification tap); [onConversationOpened] clears it. */
+    openConversationId: String? = null,
+    onConversationOpened: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = remember { (context.applicationContext as PocketLlmApplication).container }
@@ -42,6 +46,14 @@ fun AppNavGraph(
             messageRepository = container.messageRepository,
             settingsRepository = container.settingsRepository,
         )
+    }
+
+    LaunchedEffect(openConversationId) {
+        val id = openConversationId ?: return@LaunchedEffect
+        navController.navigate(Chat(conversationId = id)) {
+            popUpTo(navController.graph.id) { inclusive = true }
+        }
+        onConversationOpened()
     }
 
     val transitionDuration = 300

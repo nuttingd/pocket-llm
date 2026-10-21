@@ -5,6 +5,7 @@ import dev.nutting.pocketllm.data.local.entity.ImageDialect
 import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
 import dev.nutting.pocketllm.data.local.entity.ImageJobKind
 import dev.nutting.pocketllm.data.local.entity.ImageJobStatus
+import dev.nutting.pocketllm.domain.image.describeImageJob
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

@@ -88,6 +88,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
+    val requestNotificationsOnce = rememberNotificationPermissionRequest()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -253,7 +254,10 @@ fun ChatScreen(
             bottomBar = {
                 MessageInput(
                     isStreaming = state.isStreaming,
-                    onSendMessage = viewModel::sendMessage,
+                    onSendMessage = { text ->
+                        if (state.selectedModelIsImage) requestNotificationsOnce()
+                        viewModel.sendMessage(text)
+                    },
                     onStopGeneration = viewModel::stopGeneration,
                     modifier = Modifier,
                     onSendMessageWithImages = { text, uris ->

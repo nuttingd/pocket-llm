@@ -313,4 +313,34 @@ class ImageJobRunnerTest {
 
         assertEquals("server_gone", job().errorCode)
     }
+
+    @Test
+    fun `given two jobs queued on the server then each tracks its own queue position`() = runBlocking {
+        db.messageDao().insert(MessageEntity(id = "a2", conversationId = "c1", parentMessageId = "u1", role = "assistant", content = "", depth = 1, createdAt = 0))
+        insertJob(status = ImageJobStatus.SUBMITTED, remoteJobId = "job_A")
+        db.imageJobDao().insert(job().copy(id = "j2", messageId = "a2", remoteJobId = "job_B"))
+        val polled = mutableMapOf<String, Int>()
+        val http = {
+            imageHttpClient(MockEngine { request ->
+                val remote = request.url.encodedPath.substringAfterLast('/')
+                val n = polled.merge(remote, 1, Int::plus)!!
+                val position = if (remote == "job_A") 1 else 2
+                if (n == 1) json("""{"id":"$remote","status":"queued","queue_position":$position}""")
+                else json("""{"id":"$remote","status":"completed","result":{"images":[{"index":0,"b64_json":"$pngB64"}]}}""")
+            })
+        }
+        val seen = mutableMapOf<String, Int?>()
+        fun runnerFor(jobId: String) = ImageJobRunner(
+            db = db, server = { server }, apiKey = { null },
+            sdCpp = SdCppImageClient(http), openAi = OpenAiImagesClient(http), store = ImageStore(filesDir),
+            clock = { now }, sleep = { seen[jobId] = db.imageJobDao().getById(jobId)!!.queuePosition },
+        )
+
+        runnerFor("j1").run("j1")
+        runnerFor("j2").run("j2")
+
+        assertEquals(mapOf("j1" to 1, "j2" to 2), seen)
+        assertEquals(ImageJobStatus.SUCCEEDED, db.imageJobDao().getById("j1")!!.status)
+        assertEquals(ImageJobStatus.SUCCEEDED, db.imageJobDao().getById("j2")!!.status)
+    }
 }
