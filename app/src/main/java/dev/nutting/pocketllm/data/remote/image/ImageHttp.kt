@@ -100,7 +100,7 @@ internal suspend fun HttpResponse.toImageApiException(): ImageApiException {
         serverCode == "model_loading" -> ImageApiException(ImageApiException.Kind.MODEL_LOADING, "The server is still loading its model. Try again shortly.", code)
         serverCode == "model_not_loaded" -> ImageApiException(ImageApiException.Kind.MODEL_NOT_LOADED, "The server has no model loaded.", code)
         code == 429 -> ImageApiException(ImageApiException.Kind.QUEUE_FULL, withDetail("The server's queue is full. Try again later."), code)
-        code == 404 || code == 410 -> ImageApiException(ImageApiException.Kind.JOB_GONE, withDetail("The server no longer has this job."), code)
+        code == 404 || code == 410 -> ImageApiException(ImageApiException.Kind.JOB_GONE, "The server no longer has this job. It may have restarted, or the finished image expired.", code)
         code in 400..499 -> ImageApiException(ImageApiException.Kind.REJECTED, serverMessage ?: "The server rejected the request ($code).", code)
         else -> ImageApiException(ImageApiException.Kind.SERVER, serverMessage?.let { "Server error ($code): $it" } ?: "Server error ($code).", code)
     }

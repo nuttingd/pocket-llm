@@ -45,6 +45,13 @@ class ImageStore(
 
     fun file(relativePath: String): File = File(filesDir, relativePath)
 
+    /** Deletes one stored image (e.g. one written by a save that then failed or was cancelled). */
+    fun delete(relativePath: String) {
+        val f = file(relativePath)
+        require(f.canonicalPath.startsWith(root.canonicalPath + File.separator)) { "Not an image path: $relativePath" }
+        if (f.exists() && !f.delete()) Log.w(TAG, "Couldn't delete $relativePath; the orphan sweep will retry")
+    }
+
     /** Removes every image of a conversation (called when the conversation is deleted). */
     fun deleteConversation(conversationId: String) {
         requireSafe(conversationId)

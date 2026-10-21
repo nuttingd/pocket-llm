@@ -15,10 +15,13 @@ import dev.nutting.pocketllm.data.remote.model.ToolCall
 import dev.nutting.pocketllm.data.remote.model.ToolDefinitionParam
 import dev.nutting.pocketllm.data.remote.model.Usage
 import dev.nutting.pocketllm.data.local.dao.CompactionSummaryDao
+import dev.nutting.pocketllm.data.local.dao.GeneratedImageDao
+import dev.nutting.pocketllm.data.local.dao.ImageJobDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
+import dev.nutting.pocketllm.domain.image.describeImageReplies
 import dev.nutting.pocketllm.domain.tool.ToolExecutor
 import dev.nutting.pocketllm.llm.InferenceStatus
 import dev.nutting.pocketllm.util.TokenCounter
@@ -50,6 +53,8 @@ class ChatManager(
     private val compactionSummaryDao: CompactionSummaryDao? = null,
     private val toolDefinitionDao: ToolDefinitionDao? = null,
     private val localLlmClient: LocalLlmClient? = null,
+    private val imageJobDao: ImageJobDao? = null,
+    private val generatedImageDao: GeneratedImageDao? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -133,7 +138,7 @@ class ChatManager(
             val toolParams = toolDefs.map { it.toToolParam() }.takeIf { it.isNotEmpty() }
 
             // Build message list from active branch
-            val branchMessages = messageRepository.getActiveBranch(anchorMessage.id).first()
+            val branchMessages = withImagePlaceholders(messageRepository.getActiveBranch(anchorMessage.id).first())
 
             // Check if compaction is needed — account for prior compaction coverage
             val contextWindow = contextWindowSize ?: ((maxTokens ?: 2048) * 4)
@@ -660,6 +665,19 @@ class ChatManager(
             Log.w(TAG, "Local compaction failed, continuing without summary", e)
             null
         }
+    }
+
+    /** Image replies become text a chat model can use (FR-013); replies still generating are left out. */
+    private suspend fun withImagePlaceholders(messages: List<MessageEntity>): List<MessageEntity> {
+        val jobs = imageJobDao ?: return messages
+        val images = generatedImageDao ?: return messages
+        val candidates = messages.filter { it.role == "assistant" && it.content.isBlank() }.map { it.id }
+        if (candidates.isEmpty()) return messages
+        return describeImageReplies(
+            messages,
+            jobs.getForMessages(candidates).associateBy { it.messageId },
+            images.getForMessages(candidates).groupBy { it.messageId },
+        )
     }
 
     /** Interrupts the in-flight on-device inference, if any. */

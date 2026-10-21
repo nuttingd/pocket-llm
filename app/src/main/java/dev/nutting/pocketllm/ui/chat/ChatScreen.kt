@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
@@ -135,6 +137,18 @@ fun ChatScreen(
         }
     }
 
+    var viewingImage by remember { mutableStateOf<dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity?>(null) }
+    viewingImage?.let { image ->
+        dev.nutting.pocketllm.ui.image.ImageViewer(image = image, onDismiss = { viewingImage = null })
+    }
+    val imageActions = remember(viewModel) {
+        ImageReplyActions(
+            onOpen = { viewingImage = it },
+            onRetry = viewModel::retryImage,
+            onCancel = viewModel::cancelImage,
+        )
+    }
+
     val editingMessage = state.editingMessage
     if (editingMessage != null) {
         EditMessageDialog(
@@ -202,6 +216,7 @@ fun ChatScreen(
                                 onSwitchModel = viewModel::switchModel,
                                 onSwitchToLocal = viewModel::switchToLocal,
                                 onSwitchToRemote = viewModel::switchToRemote,
+                                onSetImageModel = viewModel::setImageModelOverride,
                             )
                         }
                     },
@@ -269,6 +284,7 @@ fun ChatScreen(
                     onDelete = viewModel::deleteMessage,
                     onApproveToolCalls = viewModel::approveToolCalls,
                     onDeclineToolCalls = viewModel::declineToolCalls,
+                    imageActions = imageActions,
                 )
             }
         }
@@ -312,6 +328,7 @@ private fun ChatContent(
     onDelete: (dev.nutting.pocketllm.data.local.entity.MessageEntity) -> Unit = {},
     onApproveToolCalls: (() -> Unit)? = null,
     onDeclineToolCalls: (() -> Unit)? = null,
+    imageActions: ImageReplyActions? = null,
 ) {
     if (state.messages.isEmpty() && !state.isStreaming) {
         Box(
@@ -319,7 +336,7 @@ private fun ChatContent(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "Start a conversation",
+                if (state.selectedModelIsImage) "Describe an image to generate" else "Start a conversation",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -400,6 +417,8 @@ private fun ChatContent(
                     onRegenerate = onRegenerate,
                     onEdit = onEdit,
                     onDelete = onDelete,
+                    imageReply = state.imageReplies[message.id],
+                    imageActions = imageActions,
                 )
             }
             if (hasCompaction) {
@@ -480,6 +499,7 @@ private fun ServerModelSelector(
     onSwitchModel: (String) -> Unit,
     onSwitchToLocal: (String) -> Unit = {},
     onSwitchToRemote: () -> Unit = {},
+    onSetImageModel: (String, Boolean?) -> Unit = { _, _ -> },
 ) {
     var showServerMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
@@ -564,11 +584,30 @@ private fun ServerModelSelector(
 
         DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
             state.availableModels.forEach { model ->
+                val isImage = state.isImageModel(model.id)
                 DropdownMenuItem(
                     text = { Text(model.id.substringAfterLast("/").ifBlank { model.id }) },
                     onClick = {
                         showModelMenu = false
                         onSwitchModel(model.id)
+                    },
+                    trailingIcon = if (isImage) {
+                        { Icon(Icons.Default.Image, contentDescription = "Generates images") }
+                    } else {
+                        null
+                    },
+                )
+            }
+            val selected = state.selectedModelId
+            if (selected != null && !state.useLocalModel) {
+                androidx.compose.material3.HorizontalDivider()
+                val selectedIsImage = state.isImageModel(selected)
+                DropdownMenuItem(
+                    text = { Text(if (selectedIsImage) "Treat as a chat model" else "Generates images") },
+                    leadingIcon = { Icon(if (selectedIsImage) Icons.Default.ChatBubbleOutline else Icons.Default.Image, contentDescription = null) },
+                    onClick = {
+                        showModelMenu = false
+                        onSetImageModel(selected, !selectedIsImage)
                     },
                 )
             }

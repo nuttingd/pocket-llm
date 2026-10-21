@@ -16,8 +16,12 @@ import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.ChatManager
 import dev.nutting.pocketllm.domain.GenerationManager
 import dev.nutting.pocketllm.domain.LocalLlmClient
+import dev.nutting.pocketllm.domain.image.ImageJobLauncher
+import dev.nutting.pocketllm.domain.image.ImageJobRunner
+import dev.nutting.pocketllm.domain.image.ImageJobScheduler
 import dev.nutting.pocketllm.domain.image.ImageStore
 import dev.nutting.pocketllm.domain.image.ModelClassifier
+import dev.nutting.pocketllm.domain.image.WorkManagerImageJobScheduler
 import dev.nutting.pocketllm.llm.LlmEngine
 import dev.nutting.pocketllm.util.ModelDownloadManager
 import java.io.File
@@ -73,6 +77,23 @@ class AppContainer(context: Context) {
         dao = modelClassificationDao,
         apiKey = { serverId -> serverRepository.getApiKey(serverId).first() },
     )
+    val imageJobScheduler: ImageJobScheduler = WorkManagerImageJobScheduler(context.applicationContext)
+    val imageJobRunner = ImageJobRunner(
+        db = database,
+        server = { id -> serverRepository.getById(id).first() },
+        apiKey = { serverId -> serverRepository.getApiKey(serverId).first() },
+        sdCpp = sdCppImageClient,
+        openAi = openAiImagesClient,
+        store = imageStore,
+    )
+    val imageJobLauncher = ImageJobLauncher(
+        db = database,
+        classifier = modelClassifier,
+        scheduler = imageJobScheduler,
+        sdCpp = sdCppImageClient,
+        apiKey = { serverId -> serverRepository.getApiKey(serverId).first() },
+        appScope = applicationScope,
+    )
 
     // Local LLM
     val modelsDir: File = File(context.getExternalFilesDir(null), "models").also { it.mkdirs() }
@@ -99,6 +120,8 @@ class AppContainer(context: Context) {
         compactionSummaryDao = compactionSummaryDao,
         toolDefinitionDao = toolDefinitionDao,
         localLlmClient = localLlmClient,
+        imageJobDao = imageJobDao,
+        generatedImageDao = generatedImageDao,
     )
 
     /** Owns in-flight replies so they keep running (and can be re-attached to) after leaving a chat. */

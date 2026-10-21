@@ -2,6 +2,7 @@ package dev.nutting.pocketllm.data.repository
 
 import dev.nutting.pocketllm.data.local.dao.ConversationDao
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
+import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.domain.image.ImageStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -30,10 +31,15 @@ class ConversationRepository(
     suspend fun updateActiveLeaf(id: String, leafId: String?) =
         dao.updateActiveLeaf(id, leafId, System.currentTimeMillis())
 
-    suspend fun exportAsMarkdown(id: String, messageRepository: MessageRepository): String {
+    /** [describe] turns messages without text (e.g. image replies) into something readable. */
+    suspend fun exportAsMarkdown(
+        id: String,
+        messageRepository: MessageRepository,
+        describe: (List<MessageEntity>) -> List<MessageEntity> = { it },
+    ): String {
         val conversation = dao.getById(id).first() ?: return ""
         val leafId = conversation.activeLeafMessageId ?: return "# ${conversation.title}\n\n*No messages*\n"
-        val messages = messageRepository.getActiveBranch(leafId).first()
+        val messages = describe(messageRepository.getActiveBranch(leafId).first())
 
         return buildString {
             appendLine("# ${conversation.title}")
