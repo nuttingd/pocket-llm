@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import dev.nutting.pocketllm.data.local.PocketLlmDatabase
 import dev.nutting.pocketllm.data.local.entity.ConversationEntity
 import dev.nutting.pocketllm.data.local.entity.ImageDialect
+import dev.nutting.pocketllm.data.local.entity.ImageJobKind
 import dev.nutting.pocketllm.data.local.entity.ImageJobStatus
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.remote.image.SdCppImageClient
@@ -39,6 +40,7 @@ class ImageJobLauncherTest {
     private lateinit var db: PocketLlmDatabase
     private val server = ServerProfileEntity(id = "s1", name = "sd", baseUrl = "http://sd:8080", createdAt = 0, updatedAt = 0)
     private var cancelStatus = HttpStatusCode.OK
+    private var capabilities = """{"supported_modes":["img_gen"],"limits":{"max_batch_count":8}}"""
     private val cancelCalls = mutableListOf<String>()
 
     private class FakeScheduler : ImageJobScheduler {
@@ -54,7 +56,7 @@ class ImageJobLauncherTest {
         imageHttpClient(MockEngine { request ->
             when {
                 request.url.encodedPath == "/sdcpp/v1/capabilities" ->
-                    respond("""{"supported_modes":["img_gen"],"limits":{"max_batch_count":8}}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+                    respond(capabilities, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
                 request.url.encodedPath.endsWith("/cancel") -> { cancelCalls += request.url.encodedPath; respond("{}", cancelStatus) }
                 else -> respond("", HttpStatusCode.NotFound)
             }
@@ -199,5 +201,66 @@ class ImageJobLauncherTest {
 
         assertEquals(ImageJobStatus.SUCCEEDED, db.imageJobDao().getById(jobId)!!.status)
         assertTrue(scheduler.cancelled.isEmpty())
+    }
+
+    /** A PNG header is all [sniffImage] needs to read the size. */
+    private fun pngDataUrl(width: Int, height: Int): String {
+        val header = java.nio.ByteBuffer.allocate(33)
+            .put(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 13, 10, 26, 10))
+            .putInt(13).put("IHDR".toByteArray()).putInt(width).putInt(height).put(byteArrayOf(8, 2, 0, 0, 0)).putInt(0)
+            .array()
+        return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(header)
+    }
+
+    @Test
+    fun `given attachments with an image model then an edit job is created from the prompt message, sized like the photo`() = runTest {
+        val photo = pngDataUrl(600, 800)
+
+        val job = db.imageJobDao().getById(launcher().edit("c1", "make it night time", listOf(photo), server, "sd-cpp-local"))!!
+
+        assertEquals(ImageJobKind.EDIT, job.kind)
+        val user = db.messageDao().getById(job.sourceMessageId!!)!!
+        assertEquals("make it night time", user.content)
+        assertEquals(photo, user.imageUris)
+        assertEquals(user.id, db.messageDao().getById(job.messageId)!!.parentMessageId)
+        val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson)
+        assertEquals(896 to 1184, params.width to params.height)
+        assertEquals(listOf(job.id to false), scheduler.enqueued)
+    }
+
+    @Test
+    fun `given a size chosen in the image settings then an edit uses it instead of the photo's`() = runTest {
+        db.conversationDao().insert(
+            ConversationEntity(id = "c1", title = "Images", lastServerProfileId = "s1", createdAt = 0, updatedAt = 0, imageParamsJson = """{"width":512,"height":512}""")
+        )
+
+        val job = db.imageJobDao().getById(launcher().edit("c1", "night", listOf(pngDataUrl(600, 800)), server, "sd-cpp-local"))!!
+
+        val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson)
+        assertEquals(512 to 512, params.width to params.height)
+    }
+
+    @Test
+    fun `given a server that says it takes no input images then an edit is refused before anything is created`() = runTest {
+        capabilities = """{"supported_modes":["img_gen"],"features_by_mode":{"img_gen":{"ref_images":false}}}"""
+
+        val refused = runCatching { launcher().edit("c1", "night", listOf(pngDataUrl(64, 64)), server, "sd-cpp-local") }
+
+        assertTrue(refused.exceptionOrNull() is ImageJobLauncher.EditNotSupportedException)
+        assertNull(db.conversationDao().getById("c1").first()!!.activeLeafMessageId)
+        assertTrue(scheduler.enqueued.isEmpty())
+    }
+
+    @Test
+    fun `given an edit reply when regenerated then the variation edits the same photo`() = runTest {
+        val launcher = launcher()
+        val first = db.imageJobDao().getById(launcher.edit("c1", "night", listOf(pngDataUrl(600, 800)), server, "sd-cpp-local"))!!
+
+        val second = db.imageJobDao().getById(launcher.regenerate(db.messageDao().getById(first.messageId)!!, server, "sd-cpp-local")!!)!!
+
+        assertEquals(ImageJobKind.EDIT, second.kind)
+        assertEquals(first.sourceMessageId, second.sourceMessageId)
+        val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), second.paramsJson)
+        assertEquals(896 to 1184, params.width to params.height)
     }
 }

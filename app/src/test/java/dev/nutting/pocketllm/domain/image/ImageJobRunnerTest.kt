@@ -70,7 +70,11 @@ class ImageJobRunnerTest {
         requests += request
         val path = request.url.encodedPath
         when {
-            path == "/sdcpp/v1/img_gen" -> json("""{"id":"job_1","status":"queued"}""", HttpStatusCode.Accepted)
+            path == "/sdcpp/v1/img_gen" -> if (submitStatus == HttpStatusCode.Accepted) {
+                json("""{"id":"job_1","status":"queued"}""", HttpStatusCode.Accepted)
+            } else {
+                json("""{"error":{"code":"invalid_request","message":"ref_images need a vision encoder"}}""", submitStatus)
+            }
             path == "/sdcpp/v1/jobs/job_1" -> {
                 onPoll(++pollCount)
                 val (status, body) = if (polls.size > 1) polls.removeFirst() else polls.first()
@@ -78,6 +82,7 @@ class ImageJobRunnerTest {
             }
             path == "/sdcpp/v1/jobs/job_1/cancel" -> json("{}", HttpStatusCode.Conflict)
             path == "/v1/images/generations" -> json("""{"data":[{"b64_json":"$pngB64"}]}""")
+            path == "/v1/images/edits" -> json("""{"data":[{"b64_json":"$pngB64"}]}""")
             else -> json("{}", HttpStatusCode.NotFound)
         }
     }
@@ -85,6 +90,8 @@ class ImageJobRunnerTest {
     private lateinit var previewDir: File
     private var previewMode: String? = null
     private var livePreview = true
+    private var sources: List<ImageJobRunner.SourceImage> = emptyList()
+    private var submitStatus = HttpStatusCode.Accepted
 
     private fun runner(store: ImageStore = ImageStore(filesDir)): ImageJobRunner {
         val http = { imageHttpClient(MockEngine { handle(this, it) }) }
@@ -98,6 +105,7 @@ class ImageJobRunnerTest {
             previews = ImagePreviewStore(previewDir),
             previewMode = { previewMode },
             livePreview = { livePreview },
+            sourceImages = { sources },
             clock = { now },
             sleep = { now += it },
         )
@@ -124,6 +132,7 @@ class ImageJobRunnerTest {
 
     private suspend fun insertJob(
         status: ImageJobStatus = ImageJobStatus.QUEUED_LOCAL,
+        kind: ImageJobKind = ImageJobKind.GENERATE,
         dialect: ImageDialect = ImageDialect.SD_CPP,
         remoteJobId: String? = null,
         seed: Long? = 100,
@@ -131,7 +140,7 @@ class ImageJobRunnerTest {
     ) = db.imageJobDao().insert(
         ImageJobEntity(
             id = "j1", conversationId = "c1", messageId = "a1", serverId = "s1", modelId = "sd-cpp-local",
-            dialect = dialect, kind = ImageJobKind.GENERATE, prompt = "a fox",
+            dialect = dialect, kind = kind, prompt = "a fox",
             paramsJson = imageJson.encodeToString(ResolvedImageParameters.serializer(), ResolvedImageParameters(1024, 1024, count, seed = seed)),
             remoteJobId = remoteJobId, status = status, createdAt = now,
         )
@@ -445,5 +454,62 @@ class ImageJobRunnerTest {
         runner().run("j1")
 
         assertEquals(ImageJobStatus.SUCCEEDED, job().status)
+    }
+
+    @Test
+    fun `given an edit job on sd-server then its photos are sent as ref_images`() = runBlocking {
+        sources = listOf(ImageJobRunner.SourceImage(png, "image/png"))
+        insertJob(kind = ImageJobKind.EDIT)
+        polls += completed()
+
+        runner().run("j1")
+
+        assertTrue(submittedBody().contains("\"ref_images\":[\"data:image/png;base64,$pngB64\"]"))
+        assertEquals(ImageJobStatus.SUCCEEDED, job().status)
+    }
+
+    @Test
+    fun `given an edit job on an OpenAI images server then it goes to the edits endpoint`() = runBlocking {
+        sources = listOf(ImageJobRunner.SourceImage(png, "image/png"))
+        insertJob(kind = ImageJobKind.EDIT, dialect = ImageDialect.OPENAI_IMAGES, seed = null)
+
+        runner().run("j1")
+
+        assertEquals(listOf("/v1/images/edits"), requests.map { it.url.encodedPath })
+        assertEquals(ImageJobStatus.SUCCEEDED, job().status)
+    }
+
+    @Test
+    fun `given an edit whose photos are gone then it fails saying so without calling the server`() = runBlocking {
+        sources = emptyList()
+        insertJob(kind = ImageJobKind.EDIT)
+
+        runner().run("j1")
+
+        assertEquals("source_missing", job().errorCode)
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test
+    fun `given the server rejects an edit then the error keeps its message and explains edit support`() = runBlocking {
+        sources = listOf(ImageJobRunner.SourceImage(png, "image/png"))
+        submitStatus = HttpStatusCode.BadRequest
+        insertJob(kind = ImageJobKind.EDIT)
+
+        runner().run("j1")
+
+        val message = job().errorMessage!!
+        assertTrue(message, message.contains("ref_images need a vision encoder"))
+        assertTrue(message, message.contains("--llm_vision"))
+    }
+
+    @Test
+    fun `given the server rejects a plain generation then no edit hint is added`() = runBlocking {
+        submitStatus = HttpStatusCode.BadRequest
+        insertJob()
+
+        runner().run("j1")
+
+        assertTrue(!job().errorMessage!!.contains("--llm_vision"))
     }
 }

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,9 +54,14 @@ import dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** Full-screen view of a generated image with pinch-to-zoom, Save to gallery, Share and Reuse seed. */
+/** Full-screen view of a generated image with pinch-to-zoom, Edit, Reuse seed, Save to gallery and Share. */
 @Composable
-fun ImageViewer(image: GeneratedImageEntity, onDismiss: () -> Unit, onReuseSeed: ((Long) -> Unit)? = null) {
+fun ImageViewer(
+    image: GeneratedImageEntity,
+    onDismiss: () -> Unit,
+    onReuseSeed: ((Long) -> Unit)? = null,
+    onEdit: ((File) -> Unit)? = null,
+) {
     val context = LocalContext.current
     val file = remember(image.filePath) { File(context.filesDir, image.filePath) }
     val scope = rememberCoroutineScope()
@@ -101,6 +107,11 @@ fun ImageViewer(image: GeneratedImageEntity, onDismiss: () -> Unit, onReuseSeed:
             ) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White) }
                 Row {
+                    if (onEdit != null) {
+                        IconButton(onClick = { onEdit(file) }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit this image", tint = Color.White)
+                        }
+                    }
                     val seed = image.seed
                     if (onReuseSeed != null && seed != null) {
                         IconButton(onClick = {

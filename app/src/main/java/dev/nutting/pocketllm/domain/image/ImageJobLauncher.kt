@@ -61,12 +61,39 @@ class ImageJobLauncher(
         return job.id
     }
 
+    /**
+     * Appends a prompt with input images and a pending edited-image reply, and starts the edit. [imageDataUrls] are the
+     * attachments as base64 data URLs, stored on the user message like any attachment. Returns the job id.
+     * Throws [EditNotSupportedException] when the server says it can't take input images.
+     */
+    suspend fun edit(conversationId: String, prompt: String, imageDataUrls: List<String>, server: ServerProfileEntity, modelId: String): String {
+        require(imageDataUrls.isNotEmpty()) { "An edit needs at least one image" }
+        val info = classifier.serverInfo(server)
+        if (info.dialect == ImageDialect.SD_CPP && info.capabilities?.imgGenFeatureOrNull("ref_images") == false) {
+            throw EditNotSupportedException()
+        }
+        val conversation = db.conversationDao().getById(conversationId).first()
+            ?: throw IllegalStateException("Conversation not found: $conversationId")
+        val sourceSize = imageDataUrls.firstNotNullOfOrNull { decodeDataUrl(it) }?.let { sniffImage(it.bytes) }?.let { it.width to it.height }
+        val params = resolveParams(conversation.imageParamsJson, server, sourceSize)
+        val parent = conversation.activeLeafMessageId?.let { messages.getById(it) }
+        val now = clock()
+        val user = MessageEntity(
+            id = newId(), conversationId = conversationId, parentMessageId = parent?.id, role = "user",
+            content = prompt, imageUris = imageDataUrls.joinToString("|"), depth = (parent?.depth ?: -1) + 1, createdAt = now,
+        )
+        val job = newJob(conversationId, prompt, server, modelId, params.first, params.second, ImageJobKind.EDIT, sourceMessageId = user.id, now = now)
+        insertReply(conversationId, user, job, now)
+        scheduler.enqueue(job.id)
+        return job.id
+    }
+
     /** Generates a new variation of [reply] as a sibling branch, using the current server, model and parameters. */
     suspend fun regenerate(reply: MessageEntity, server: ServerProfileEntity, modelId: String): String? {
         val source = db.imageJobDao().getByMessageId(reply.id) ?: return null
         val user = reply.parentMessageId?.let { messages.getById(it) } ?: return null
         val conversation = db.conversationDao().getById(reply.conversationId).first() ?: return null
-        val params = resolveParams(conversation.imageParamsJson, server)
+        val params = resolveParams(conversation.imageParamsJson, server, sourceSizeOf(source))
         val now = clock()
         val job = newJob(reply.conversationId, source.prompt, server, modelId, params.first, params.second, source.kind, source.sourceMessageId, now)
         insertReply(reply.conversationId, null, job, now, parentForReply = user)
@@ -79,7 +106,7 @@ class ImageJobLauncher(
         val job = db.imageJobDao().getById(jobId) ?: return
         val server = db.serverProfileDao().getById(job.serverId).first() ?: return
         val conversation = db.conversationDao().getById(job.conversationId).first() ?: return
-        val (_, params) = resolveParams(conversation.imageParamsJson, server)
+        val (_, params) = resolveParams(conversation.imageParamsJson, server, sourceSizeOf(job))
         if (db.imageJobDao().resetForRetry(jobId, imageJson.encodeToString(ResolvedImageParameters.serializer(), params), clock()) > 0) {
             scheduler.enqueue(jobId, replace = true)
         }
@@ -109,14 +136,29 @@ class ImageJobLauncher(
         }
     }
 
-    private suspend fun resolveParams(imageParamsJson: String?, server: ServerProfileEntity): Pair<ImageDialect, ResolvedImageParameters> {
+    /** Resolves the conversation's settings; an edit without a chosen size follows its source image's aspect ratio. */
+    private suspend fun resolveParams(
+        imageParamsJson: String?,
+        server: ServerProfileEntity,
+        sourceSize: Pair<Int, Int>? = null,
+    ): Pair<ImageDialect, ResolvedImageParameters> {
         val info = classifier.serverInfo(server)
-        val settings = imageParamsJson?.let {
+        var settings = imageParamsJson?.let {
             runCatching { imageJson.decodeFromString(ImageParameters.serializer(), it) }
                 .onFailure { e -> Log.w(TAG, "Ignoring unreadable image parameters", e) }
                 .getOrNull()
         } ?: ImageParameters()
+        if (sourceSize != null && settings.width == null && settings.height == null) {
+            val (width, height) = editSizeFor(sourceSize.first, sourceSize.second)
+            settings = settings.copy(width = width, height = height)
+        }
         return info.dialect to settings.resolve(info.dialect, info.capabilities?.limits, random)
+    }
+
+    private suspend fun sourceSizeOf(job: ImageJobEntity): Pair<Int, Int>? {
+        if (job.kind != ImageJobKind.EDIT) return null
+        val first = loadEditSources(db.messageDao(), job.sourceMessageId).firstOrNull() ?: return null
+        return sniffImage(first.bytes)?.let { it.width to it.height }
     }
 
     private fun newJob(
@@ -151,6 +193,8 @@ class ImageJobLauncher(
             db.conversationDao().updateActiveLeaf(conversationId, reply.id, now)
         }
     }
+
+    class EditNotSupportedException : Exception("This image server can't edit images: it doesn't accept input images.")
 
     companion object {
         private const val TAG = "ImageJobLauncher"

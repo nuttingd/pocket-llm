@@ -56,7 +56,7 @@ class SdServerLiveContractTest {
         runBlocking {
             db.conversationDao().insert(ConversationEntity(id = "c1", title = "Live", createdAt = 0, updatedAt = 0))
             db.messageDao().insert(MessageEntity(id = "u1", conversationId = "c1", role = "user", content = "x", createdAt = 0))
-            for (id in listOf("a1", "a2", "a3")) {
+            for (id in listOf("a1", "a2", "a3", "a4")) {
                 db.messageDao().insert(MessageEntity(id = id, conversationId = "c1", parentMessageId = "u1", role = "assistant", content = "", depth = 1, createdAt = 0))
             }
         }
@@ -81,6 +81,7 @@ class SdServerLiveContractTest {
         store = ImageStore(filesDir),
         previews = ImagePreviewStore(filesDir),
         previewMode = { "proj" },
+        sourceImages = { job -> loadEditSources(db.messageDao(), job.sourceMessageId) },
         sleep = { ms ->
             db.imageJobDao().getById("job-a3")?.let { job ->
                 job.step?.let { if (seenSteps.lastOrNull() != it) seenSteps += it }
@@ -90,12 +91,18 @@ class SdServerLiveContractTest {
         },
     )
 
-    private suspend fun runJob(messageId: String, dialect: ImageDialect, params: ResolvedImageParameters): ImageJobEntity {
+    private suspend fun runJob(
+        messageId: String,
+        dialect: ImageDialect,
+        params: ResolvedImageParameters,
+        kind: ImageJobKind = ImageJobKind.GENERATE,
+        sourceMessageId: String? = null,
+    ): ImageJobEntity {
         val id = "job-$messageId"
         db.imageJobDao().insert(
             ImageJobEntity(
                 id = id, conversationId = "c1", messageId = messageId, serverId = "s1", modelId = "sd-cpp-local",
-                dialect = dialect, kind = ImageJobKind.GENERATE, prompt = "a red fox in snow, watercolor",
+                dialect = dialect, kind = kind, prompt = "a red fox in snow, watercolor", sourceMessageId = sourceMessageId,
                 paramsJson = imageJson.encodeToString(ResolvedImageParameters.serializer(), params),
                 status = ImageJobStatus.QUEUED_LOCAL, createdAt = System.currentTimeMillis(),
             )
@@ -163,5 +170,23 @@ class SdServerLiveContractTest {
         assertTrue("saw several steps", seenSteps.size >= 3)
         assertTrue("saw several frames", seenFrames.size >= 3)
         assertTrue("frames removed after", File(filesDir, ImagePreviewStore.ROOT).listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun `given a real sd-server then an edit's photo is accepted as a data url ref image`() = runBlocking {
+        // A generated image stands in for the user's photo, attached the way the app attaches photos
+        runJob("a1", ImageDialect.SD_CPP, ImageParameters(width = 512, height = 384, seed = 3).resolve(ImageDialect.SD_CPP))
+        val photo = File(filesDir, db.generatedImageDao().getForMessages(listOf("a1")).first().filePath).readBytes()
+        db.messageDao().insert(
+            MessageEntity(
+                id = "u2", conversationId = "c1", role = "user", content = "make it night time", createdAt = 0,
+                imageUris = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(photo),
+            )
+        )
+
+        val job = runJob("a4", ImageDialect.SD_CPP, ImageParameters(width = 512, height = 384, seed = 4).resolve(ImageDialect.SD_CPP), ImageJobKind.EDIT, "u2")
+
+        assertEquals(job.errorMessage, ImageJobStatus.SUCCEEDED, job.status)
+        assertEquals(1, db.generatedImageDao().getForMessages(listOf("a4")).size)
     }
 }
