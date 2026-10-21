@@ -20,6 +20,7 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
+import io.ktor.http.content.TextContent
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -81,6 +82,10 @@ class ImageJobRunnerTest {
         }
     }
 
+    private lateinit var previewDir: File
+    private var previewMode: String? = null
+    private var livePreview = true
+
     private fun runner(store: ImageStore = ImageStore(filesDir)): ImageJobRunner {
         val http = { imageHttpClient(MockEngine { handle(this, it) }) }
         return ImageJobRunner(
@@ -90,14 +95,23 @@ class ImageJobRunnerTest {
             sdCpp = SdCppImageClient(http),
             openAi = OpenAiImagesClient(http),
             store = store,
+            previews = ImagePreviewStore(previewDir),
+            previewMode = { previewMode },
+            livePreview = { livePreview },
             clock = { now },
             sleep = { now += it },
         )
     }
 
+    private fun previewFiles() = File(previewDir, ImagePreviewStore.ROOT).listFiles().orEmpty().map { it.name }.sorted()
+    private fun generating(step: Int, frame: Boolean = true) = HttpStatusCode.OK to
+        """{"id":"job_1","status":"generating","started":2000,"preview":{"pass":1,"step":$step,"total_steps":8${if (frame) ""","b64_json":"$pngB64"""" else ""}}}"""
+    private fun submittedBody() = (requests.first { it.url.encodedPath == "/sdcpp/v1/img_gen" }.body as TextContent).text
+
     @Before
     fun setUp() = runTest {
         filesDir = tmp.newFolder("files")
+        previewDir = tmp.newFolder("cache")
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), PocketLlmDatabase::class.java)
             .allowMainThreadQueries().build()
         db.conversationDao().insert(ConversationEntity(id = "c1", title = "Images", createdAt = 0, updatedAt = 0))
@@ -342,5 +356,94 @@ class ImageJobRunnerTest {
         assertEquals(mapOf("j1" to 1, "j2" to 2), seen)
         assertEquals(ImageJobStatus.SUCCEEDED, db.imageJobDao().getById("j1")!!.status)
         assertEquals(ImageJobStatus.SUCCEEDED, db.imageJobDao().getById("j2")!!.status)
+    }
+
+    @Test
+    fun `given a server with proj previews then it asks for them and keeps the latest frame only while the job runs`() = runBlocking {
+        previewMode = "proj"
+        insertJob()
+        var framesAtStep4: List<String>? = null
+        onPoll = { n -> if (n == 3) framesAtStep4 = previewFiles() }
+        polls += generating(3)
+        polls += generating(4)
+        polls += completed()
+
+        runner().run("j1")
+
+        assertTrue(submittedBody().contains("\"preview\":\"proj\""))
+        assertEquals(listOf("j1_1-4.png"), framesAtStep4)
+        assertTrue("frames are removed once the job finishes", previewFiles().isEmpty())
+        assertEquals(ImageJobStatus.SUCCEEDED, job().status)
+    }
+
+    @Test
+    fun `given the step is unchanged between polls then neither the job row nor the preview is written again`() = runBlocking {
+        previewMode = "proj"
+        insertJob()
+        var afterRepeat: Pair<Int?, List<String>>? = null
+        onPoll = { n ->
+            runBlocking {
+                when (n) {
+                    // After step 3 was recorded: tamper with the row and the frame, and see whether the repeat restores them
+                    2 -> {
+                        db.imageJobDao().markProgress("j1", ImageJobStatus.GENERATING, null, 1, 99, 8, 2000)
+                        File(previewDir, ImagePreviewStore.ROOT).listFiles()!!.forEach { it.delete() }
+                    }
+                    3 -> afterRepeat = job().step to previewFiles()
+                }
+            }
+        }
+        polls += generating(3)
+        polls += generating(3)
+        polls += completed()
+
+        runner().run("j1")
+
+        assertEquals(99 to emptyList<String>(), afterRepeat)
+    }
+
+    @Test
+    fun `given live preview is off then progress is still recorded but no frame is kept`() = runBlocking {
+        previewMode = "proj"
+        livePreview = false
+        insertJob()
+        var seen: Pair<Int?, String?>? = null
+        onPoll = { n -> if (n == 2) seen = runBlocking { job().step to job().previewPath } }
+        polls += generating(5)
+        polls += completed()
+
+        runner().run("j1")
+
+        assertEquals(5 to null, seen)
+        assertTrue(previewFiles().isEmpty())
+    }
+
+    @Test
+    fun `given a server without proj previews then the request omits the preview and progress stays indeterminate`() = runBlocking {
+        previewMode = null
+        insertJob()
+        var seen: ImageJobEntity? = null
+        onPoll = { n -> if (n == 2) seen = runBlocking { job() } }
+        polls += HttpStatusCode.OK to """{"id":"job_1","status":"generating","started":2000}"""
+        polls += completed()
+
+        runner().run("j1")
+
+        assertTrue(!submittedBody().contains("preview"))
+        assertEquals(ImageJobStatus.GENERATING, seen!!.status)
+        assertNull(seen!!.step)
+        assertNull(describeImageJob(seen!!).progress)
+    }
+
+    @Test
+    fun `given a frame the server sends is not an image then the job carries on without a preview`() = runBlocking {
+        previewMode = "proj"
+        insertJob()
+        polls += HttpStatusCode.OK to """{"id":"job_1","status":"generating","preview":{"step":1,"total_steps":8,"b64_json":"bm90IGFuIGltYWdl"}}"""
+        polls += completed()
+
+        runner().run("j1")
+
+        assertEquals(ImageJobStatus.SUCCEEDED, job().status)
     }
 }

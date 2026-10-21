@@ -247,6 +247,25 @@ fun SettingsScreen(
                 onValueChange = { viewModel.setCompactionThresholdPct(it.roundToInt()) },
             )
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Live image preview")
+                    Text(
+                        "Show the image taking shape while it generates (stable-diffusion.cpp servers)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.imageLivePreview,
+                    onCheckedChange = viewModel::setImageLivePreview,
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // About

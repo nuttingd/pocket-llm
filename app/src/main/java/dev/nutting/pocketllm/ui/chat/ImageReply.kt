@@ -1,5 +1,6 @@
 package dev.nutting.pocketllm.ui.chat
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,11 +25,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -44,8 +48,10 @@ import dev.nutting.pocketllm.data.local.entity.ImageJobStatus
 import dev.nutting.pocketllm.data.remote.image.imageJson
 import dev.nutting.pocketllm.domain.image.ResolvedImageParameters
 import dev.nutting.pocketllm.domain.image.describeImageJob
-import kotlinx.coroutines.delay
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** An assistant reply that is (or will be) generated images: its job, if known, and the images saved so far. */
 data class ImageReplyState(val job: ImageJobEntity?, val images: List<GeneratedImageEntity>)
@@ -160,6 +166,7 @@ private fun PendingImage(job: ImageJobEntity, actions: ImageReplyActions) {
         } else {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
+        job.previewPath?.let { LivePreview(job, it) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text.detail ?: "",
@@ -175,6 +182,32 @@ private fun PendingImage(job: ImageJobEntity, actions: ImageReplyActions) {
                 Text("Stop")
             }
         }
+    }
+}
+
+/** The latest preview frame. The previous frame stays up until the next one is decoded, so it never flickers. */
+@Composable
+private fun LivePreview(job: ImageJobEntity, previewPath: String) {
+    val cacheDir = LocalContext.current.cacheDir
+    var frame by remember(job.id) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(previewPath) {
+        withContext(Dispatchers.IO) { BitmapFactory.decodeFile(File(cacheDir, previewPath).path) }
+            ?.let { frame = it.asImageBitmap() }
+    }
+    val ratio = remember(job.paramsJson) {
+        runCatching { imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson) }.getOrNull()
+            ?.let { it.width.toFloat() / it.height } ?: 1f
+    }
+    frame?.let {
+        Image(
+            bitmap = it,
+            contentDescription = "Preview of the image being generated",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .heightIn(max = 200.dp)
+                .aspectRatio(ratio, matchHeightConstraintsFirst = true)
+                .clip(RoundedCornerShape(12.dp)),
+        )
     }
 }
 

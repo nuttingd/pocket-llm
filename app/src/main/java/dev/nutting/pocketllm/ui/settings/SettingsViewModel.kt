@@ -31,6 +31,7 @@ class SettingsViewModel(
                     defaultFrequencyPenalty = settingsRepository.getDefaultFrequencyPenalty().first(),
                     defaultPresencePenalty = settingsRepository.getDefaultPresencePenalty().first(),
                     compactionThresholdPct = settingsRepository.getCompactionThresholdPct().first(),
+                    imageLivePreview = settingsRepository.getImageLivePreview().first(),
                 )
             }
         }
@@ -44,6 +45,11 @@ class SettingsViewModel(
     fun setMessageFontSizeSp(value: Int) {
         _uiState.update { it.copy(messageFontSizeSp = value) }
         viewModelScope.launch { settingsRepository.setMessageFontSizeSp(value) }
+    }
+
+    fun setImageLivePreview(value: Boolean) {
+        _uiState.update { it.copy(imageLivePreview = value) }
+        viewModelScope.launch { settingsRepository.setImageLivePreview(value) }
     }
 
     fun setDynamicColorEnabled(value: Boolean) {

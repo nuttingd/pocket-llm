@@ -12,7 +12,7 @@ import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.remote.image.ImageApiException
 import dev.nutting.pocketllm.data.remote.image.OpenAiImagesClient
 import dev.nutting.pocketllm.data.remote.image.SdCppImageClient
-import dev.nutting.pocketllm.data.remote.image.SdCppJob
+import dev.nutting.pocketllm.data.remote.image.SdCppPreview
 import dev.nutting.pocketllm.data.remote.image.decodeImageBase64
 import dev.nutting.pocketllm.data.remote.image.imageJson
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +38,11 @@ class ImageJobRunner(
     private val sdCpp: SdCppImageClient,
     private val openAi: OpenAiImagesClient,
     private val store: ImageStore,
+    private val previews: ImagePreviewStore? = null,
+    /** The sd-server preview mode to request (only `proj`, and only when the server offers it), or null for none. */
+    private val previewMode: suspend (ServerProfileEntity) -> String? = { null },
+    /** Whether to keep live-preview frames for the UI (the "Live preview" setting). */
+    private val livePreview: suspend () -> Boolean = { true },
     /** Input images for an edit job (empty for generation). */
     private val sourceImages: suspend (ImageJobEntity) -> List<SourceImage> = { emptyList() },
     private val clock: () -> Long = System::currentTimeMillis,
@@ -70,6 +75,9 @@ class ImageJobRunner(
         } catch (e: Exception) {
             Log.e(TAG, "Image job ${jobId.take(8)} failed unexpectedly", e)
             fail(jobId, "unexpected", "Image generation failed: ${e.message ?: e::class.simpleName}")
+        } finally {
+            // Frames only matter while the job runs; a resumed run writes fresh ones
+            previews?.deleteJob(jobId)
         }
     }
 
@@ -77,7 +85,7 @@ class ImageJobRunner(
         val key = apiKey(server.id)
         val remoteId = job.remoteJobId ?: run {
             val refImages = sourceImages(job).map { "data:${it.mimeType};base64," + java.util.Base64.getEncoder().encodeToString(it.bytes) }
-            val id = sdCpp.submit(server.baseUrl, key, params.toSdCppRequest(job.prompt, refImages))
+            val id = sdCpp.submit(server.baseUrl, key, params.toSdCppRequest(job.prompt, refImages, previewMode(server)))
             if (jobs.markSubmitted(job.id, id) == 0) {
                 // Cancelled while submitting: stop the server job too if it hasn't started
                 runCatching { sdCpp.cancel(server.baseUrl, key, id) }
@@ -85,6 +93,16 @@ class ImageJobRunner(
                 return
             }
             id
+        }
+
+        // Progress is written only when it changes; a poll that changes nothing just checks for a cancel
+        var lastProgress: Progress? = null
+        suspend fun record(progress: Progress): Boolean {
+            if (progress == lastProgress) return jobs.getById(job.id)?.status?.isTerminal == false
+            lastProgress = progress
+            return jobs.markProgress(
+                job.id, progress.status, progress.queuePosition, progress.pass, progress.step, progress.totalSteps, progress.startedAt,
+            ) > 0
         }
 
         var failingSince: Long? = null
@@ -112,7 +130,7 @@ class ImageJobRunner(
 
             when (snapshot.status) {
                 "queued" -> {
-                    if (jobs.markProgress(job.id, ImageJobStatus.SUBMITTED, snapshot.queuePosition, null, null, null, null) == 0) return
+                    if (!record(Progress(ImageJobStatus.SUBMITTED, queuePosition = snapshot.queuePosition))) return
                     sleep(QUEUED_POLL_MS)
                 }
                 "completed" -> {
@@ -127,19 +145,43 @@ class ImageJobRunner(
                     return
                 }
                 else -> { // "generating", or a state this version doesn't know yet: keep polling
-                    if (!markGenerating(job.id, snapshot)) return
+                    val preview = snapshot.preview
+                    val progress = Progress(ImageJobStatus.GENERATING, null, preview?.pass, preview?.step, preview?.totalSteps, snapshot.started)
+                    val changed = progress != lastProgress
+                    if (!record(progress)) return
+                    if (changed && preview?.b64Json != null) savePreview(job.id, preview)
                     sleep(GENERATING_POLL_MS)
                 }
             }
         }
     }
 
-    private suspend fun markGenerating(jobId: String, snapshot: SdCppJob): Boolean =
-        jobs.markProgress(
-            jobId, ImageJobStatus.GENERATING, queuePosition = null,
-            pass = snapshot.preview?.pass, step = snapshot.preview?.step, totalSteps = snapshot.preview?.totalSteps,
-            startedAt = snapshot.started,
-        ) > 0
+    private data class Progress(
+        val status: ImageJobStatus,
+        val queuePosition: Int? = null,
+        val pass: Int? = null,
+        val step: Int? = null,
+        val totalSteps: Int? = null,
+        val startedAt: Long? = null,
+    )
+
+    /** Keeps the new frame for the UI. A preview is a nicety: failing to decode or write one never fails the job. */
+    private suspend fun savePreview(jobId: String, preview: SdCppPreview) {
+        val previews = previews ?: return
+        if (!livePreview()) return
+        try {
+            val bytes = decodeImageBase64(preview.b64Json!!)
+            val info = sniffImage(bytes) ?: return
+            val path = withContext(Dispatchers.IO) {
+                previews.write(jobId, "${preview.pass ?: 1}-${preview.step ?: 0}", bytes, info.extension)
+            }
+            jobs.setPreview(jobId, path)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't keep a preview frame for job ${jobId.take(8)}", e)
+        }
+    }
 
     private suspend fun runOpenAi(job: ImageJobEntity, server: ServerProfileEntity, params: ResolvedImageParameters, deadline: Long) {
         if (job.status != ImageJobStatus.QUEUED_LOCAL) {
