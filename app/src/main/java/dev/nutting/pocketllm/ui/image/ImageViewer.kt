@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
@@ -52,9 +53,9 @@ import dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** Full-screen view of a generated image with pinch-to-zoom, Save to gallery and Share. */
+/** Full-screen view of a generated image with pinch-to-zoom, Save to gallery, Share and Reuse seed. */
 @Composable
-fun ImageViewer(image: GeneratedImageEntity, onDismiss: () -> Unit) {
+fun ImageViewer(image: GeneratedImageEntity, onDismiss: () -> Unit, onReuseSeed: ((Long) -> Unit)? = null) {
     val context = LocalContext.current
     val file = remember(image.filePath) { File(context.filesDir, image.filePath) }
     val scope = rememberCoroutineScope()
@@ -100,6 +101,13 @@ fun ImageViewer(image: GeneratedImageEntity, onDismiss: () -> Unit) {
             ) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White) }
                 Row {
+                    val seed = image.seed
+                    if (onReuseSeed != null && seed != null) {
+                        IconButton(onClick = {
+                            onReuseSeed(seed)
+                            scope.launch { snackbar.showSnackbar("Seed $seed will be used for the next images") }
+                        }) { Icon(Icons.Default.Casino, contentDescription = "Reuse seed $seed", tint = Color.White) }
+                    }
                     IconButton(onClick = {
                         val needsPermission = ImageExport.needsStoragePermission &&
                             ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED

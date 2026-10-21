@@ -191,12 +191,14 @@ Each phase is releasable. Image models only behave differently once Phase 3 land
   - count 1–4, steps, CFG, sampler and scheduler (from capabilities), seed, negative prompt
   - server defaults shown as placeholders
 - SD_CPP-only fields are hidden for the generic dialect.
-- The "Reuse seed" action on an image.
+- The "Reuse seed" action on an image (in the full-screen viewer, next to Save and Share).
+- A new chat keeps its image settings in memory until its first prompt creates the conversation, which then stores them.
 - **Tests:**
   - `given custom 1000x1000 then snapped to 992x992`
   - `given count above server max then clamped`
   - `given fixed seed then sent unchanged and batch seeds are seed+i`
   - `given generic dialect then only n and size sent`
+  - (the four above were written with `ImageParameters.resolve` in Phase 3) `ImageSizePresetTest` for preset matching
 
 ### Phase 7: Editing (Story 5) · `feat(image): edit images with a prompt`
 

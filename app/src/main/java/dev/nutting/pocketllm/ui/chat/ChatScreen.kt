@@ -63,6 +63,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.nutting.pocketllm.data.local.entity.ImageDialect
+import dev.nutting.pocketllm.domain.image.ImageParameters
 import dev.nutting.pocketllm.ui.conversations.ConversationListDrawerContent
 import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
 import dev.nutting.pocketllm.llm.InferenceStatus
@@ -140,7 +142,11 @@ fun ChatScreen(
 
     var viewingImage by remember { mutableStateOf<dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity?>(null) }
     viewingImage?.let { image ->
-        dev.nutting.pocketllm.ui.image.ImageViewer(image = image, onDismiss = { viewingImage = null })
+        dev.nutting.pocketllm.ui.image.ImageViewer(
+            image = image,
+            onDismiss = { viewingImage = null },
+            onReuseSeed = viewModel::reuseSeed,
+        )
     }
     val imageActions = remember(viewModel) {
         ImageReplyActions(
@@ -159,7 +165,16 @@ fun ChatScreen(
         )
     }
 
-    if (state.showConversationSettings) {
+    if (state.showConversationSettings && state.selectedModelIsImage) {
+        ImageParametersSheet(
+            params = state.imageParams,
+            dialect = if (state.imageServerDetected) ImageDialect.SD_CPP else ImageDialect.OPENAI_IMAGES,
+            capabilities = state.imageCapabilities,
+            onParamsChanged = viewModel::updateImageParams,
+            onReset = { viewModel.updateImageParams(ImageParameters()) },
+            onDismiss = viewModel::dismissConversationSettings,
+        )
+    } else if (state.showConversationSettings) {
         ConversationSettingsSheet(
             params = state.conversationParams,
             defaults = state.defaultParams,
