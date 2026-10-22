@@ -3,6 +3,9 @@ package dev.nutting.pocketllm.ui.chat
 import dev.nutting.pocketllm.data.local.entity.ImageDialect
 import dev.nutting.pocketllm.data.local.entity.ServerKind
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
+import dev.nutting.pocketllm.data.remote.image.SdCppCapabilities
+import dev.nutting.pocketllm.data.remote.image.imageJson
+import dev.nutting.pocketllm.domain.image.ImageParameters
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -33,5 +36,18 @@ class ImagePickerStateTest {
     fun `given image mode without an image server then prompts still go to chat`() {
         assertFalse(ChatUiState(imageMode = true).imageModeActive)
         assertTrue(ChatUiState(imageMode = true, selectedImageServer = server).imageModeActive)
+    }
+
+    @Test
+    fun `given guidance 1 from the server or the settings then a negative prompt is flagged as ignored`() {
+        val turbo = imageJson.decodeFromString(
+            SdCppCapabilities.serializer(),
+            """{"supported_modes":["img_gen"],"defaults_by_mode":{"img_gen":{"sample_params":{"guidance":{"txt_cfg":1.0}}}}}""",
+        )
+        val state = ChatUiState(selectedImageServer = server, imageDialect = ImageDialect.SD_CPP, imageCapabilities = turbo)
+
+        assertTrue(state.negativePromptIgnored)
+        assertFalse(state.copy(imageParams = ImageParameters(cfg = 4f)).negativePromptIgnored)
+        assertFalse(ChatUiState(selectedImageServer = server).negativePromptIgnored)
     }
 }

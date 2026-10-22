@@ -303,6 +303,7 @@ fun ChatScreen(
                             negativePromptSupported = state.imageModeActive && state.imageDialect == ImageDialect.SD_CPP,
                             negativePrompt = negativePrompt,
                             onNegativePromptChange = { negativePrompt = it },
+                            negativePromptIgnored = state.negativePromptIgnored,
                         )
                     }
                     MessageInput(
@@ -566,6 +567,7 @@ private fun ComposerModeBar(
     negativePromptSupported: Boolean,
     negativePrompt: String,
     onNegativePromptChange: (String) -> Unit,
+    negativePromptIgnored: Boolean = false,
 ) {
     var showNegative by rememberSaveable { mutableStateOf(false) }
     Surface(tonalElevation = 3.dp) {
@@ -611,6 +613,12 @@ private fun ComposerModeBar(
                 onValueChange = onNegativePromptChange,
                 placeholder = { Text("What to keep out of this image") },
                 label = { Text("Negative prompt") },
+                isError = negativePromptIgnored && negativePrompt.isNotEmpty(),
+                supportingText = if (negativePromptIgnored) {
+                    { Text("Ignored at guidance 1 (how Turbo models run). Raise Guidance in image settings to use it.") }
+                } else {
+                    null
+                },
                 singleLine = true,
                 trailingIcon = if (negativePrompt.isNotEmpty()) {
                     {

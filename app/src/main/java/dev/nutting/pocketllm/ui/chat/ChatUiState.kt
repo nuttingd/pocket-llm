@@ -74,6 +74,17 @@ data class ChatUiState(
     /** Prompts go to the image server: image mode is on and there's an image server to use. */
     val imageModeActive: Boolean get() = imageMode && selectedImageServer != null
 
+    /**
+     * stable-diffusion.cpp skips the negative-prompt pass when guidance (CFG) is 1, as Turbo models are run, so a
+     * negative prompt would be silently ignored. True when the guidance in effect (the setting, else the server's
+     * default) is 1 or less.
+     */
+    val negativePromptIgnored: Boolean
+        get() {
+            val guidance = imageParams.cfg ?: imageCapabilities?.imgGenDefaults?.sampleParams?.guidance?.txtCfg ?: return false
+            return guidance <= 1f + 1e-5f
+        }
+
     /** The model images are generated with: the one chosen for the server, else the one a stable-diffusion.cpp server serves. */
     val selectedImageModelId: String?
         get() = selectedImageServer?.imageModelId?.takeIf { it.isNotBlank() }
