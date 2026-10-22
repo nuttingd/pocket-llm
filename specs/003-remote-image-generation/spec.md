@@ -13,8 +13,9 @@ In use, treating image servers like chat servers (an image model chosen in the c
   - The server list shows **Chat servers** and **Image servers** as separate sections.
   - An image server that isn't stable-diffusion.cpp needs an **image model**, picked from the models it lists or typed in.
 - **Composer mode:** when any image server exists, the message bar has a **Chat / Image** toggle.
-  - Image mode sends prompts (and attached photos, as edits) to the selected image server, chosen beside the toggle. Its image settings are a tap away.
-  - The chat model picker lists only chat servers and models.
+  - The model picker at the top follows the mode. In Chat mode it lists chat servers and models; in Image mode it lists image servers and the selected server's image models: the one a stable-diffusion.cpp server serves, or the models an OpenAI images server lists.
+  - Choosing an image model saves it on that server. The top bar's settings button opens the image settings in Image mode.
+  - Image mode sends prompts (and attached photos, as edits) to the selected image server and model.
   - One conversation can mix chat replies and image replies.
 - **Migration:** a server that already ran image jobs, or had a model marked "Generates images", becomes an image server and keeps that model. The per-model overrides are removed.
 

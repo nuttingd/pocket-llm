@@ -309,9 +309,9 @@ private fun ServerEditForm(
             OutlinedTextField(
                 value = editing.imageModelId,
                 onValueChange = { onUpdate(editing.copy(imageModelId = it)) },
-                label = { Text("Image model") },
+                label = { Text("Image model (optional)") },
                 placeholder = { Text("e.g. gpt-image-1") },
-                supportingText = { Text("The model this server should generate images with") },
+                supportingText = { Text("Can also be chosen later from the model picker in Image mode") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )

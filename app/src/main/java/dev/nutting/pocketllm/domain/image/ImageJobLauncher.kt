@@ -214,7 +214,7 @@ class ImageJobLauncher(
     class EditNotSupportedException : Exception("This image server can't edit images: it doesn't accept input images.")
 
     class NoImageModelException(serverName: String) :
-        Exception("Choose which image model $serverName should use, in Manage servers.")
+        Exception("Choose an image model for $serverName in the model picker.")
 
     companion object {
         private const val TAG = "ImageJobLauncher"

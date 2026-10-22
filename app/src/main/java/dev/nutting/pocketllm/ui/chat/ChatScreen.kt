@@ -20,8 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -245,6 +245,8 @@ fun ChatScreen(
                                 onSwitchModel = viewModel::switchModel,
                                 onSwitchToLocal = viewModel::switchToLocal,
                                 onSwitchToRemote = viewModel::switchToRemote,
+                                onSwitchImageServer = viewModel::selectImageServer,
+                                onSwitchImageModel = viewModel::selectImageModel,
                             )
                         }
                     },
@@ -284,10 +286,8 @@ fun ChatScreen(
                 Column {
                     if (state.imageServers.isNotEmpty()) {
                         ComposerModeBar(
-                            state = state,
+                            imageMode = state.imageMode,
                             onImageModeChange = viewModel::setImageMode,
-                            onSelectImageServer = viewModel::selectImageServer,
-                            onOpenImageSettings = viewModel::toggleConversationSettings,
                         )
                     }
                     MessageInput(
@@ -540,27 +540,25 @@ private fun ChatOverflowMenu(
 }
 
 /**
- * Above the message box when image servers exist: switches between chatting and generating images, and in image
- * mode shows which image server prompts go to (a menu when there are several) and its image settings.
+ * Above the message box when image servers exist: switches between chatting and generating images. Which server
+ * and model each mode uses is chosen in the model picker at the top.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ComposerModeBar(
-    state: ChatUiState,
+    imageMode: Boolean,
     onImageModeChange: (Boolean) -> Unit,
-    onSelectImageServer: (String) -> Unit,
-    onOpenImageSettings: () -> Unit,
 ) {
     Surface(tonalElevation = 3.dp) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SingleChoiceSegmentedButtonRow {
                 val modes = listOf(false to "Chat", true to "Image")
                 modes.forEachIndexed { index, (image, label) ->
                     SegmentedButton(
-                        selected = state.imageMode == image,
+                        selected = imageMode == image,
                         onClick = { onImageModeChange(image) },
                         shape = SegmentedButtonDefaults.itemShape(index, modes.size),
                         icon = {
@@ -576,44 +574,6 @@ private fun ComposerModeBar(
                     ) { Text(label, style = MaterialTheme.typography.labelMedium) }
                 }
             }
-            if (state.imageMode) {
-                var showServers by remember { mutableStateOf(false) }
-                Box(Modifier.weight(1f).padding(start = 8.dp)) {
-                    TextButton(
-                        onClick = { showServers = true },
-                        enabled = state.imageServers.size > 1,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Image server: ${state.selectedImageServer?.name ?: "none"}"
-                        },
-                    ) {
-                        Text(
-                            state.selectedImageServer?.name ?: "No image server",
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            // Leaves room for the dropdown arrow when the name is long
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (state.imageServers.size > 1) Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                    }
-                    DropdownMenu(expanded = showServers, onDismissRequest = { showServers = false }) {
-                        state.imageServers.forEach { server ->
-                            DropdownMenuItem(
-                                text = { Text(server.name) },
-                                leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
-                                onClick = {
-                                    showServers = false
-                                    onSelectImageServer(server.id)
-                                },
-                            )
-                        }
-                    }
-                }
-                IconButton(
-                    onClick = onOpenImageSettings,
-                    modifier = Modifier.semantics { contentDescription = "Image settings" },
-                ) { Icon(Icons.Default.Tune, contentDescription = null) }
-            }
         }
     }
 }
@@ -625,7 +585,13 @@ private fun ServerModelSelector(
     onSwitchModel: (String) -> Unit,
     onSwitchToLocal: (String) -> Unit = {},
     onSwitchToRemote: () -> Unit = {},
+    onSwitchImageServer: (String) -> Unit = {},
+    onSwitchImageModel: (String) -> Unit = {},
 ) {
+    if (state.imageModeActive) {
+        ImageServerModelSelector(state, onSwitchImageServer, onSwitchImageModel)
+        return
+    }
     var showServerMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
 
@@ -721,6 +687,91 @@ private fun ServerModelSelector(
                 androidx.compose.material3.HorizontalDivider()
                 DropdownMenuItem(
                     text = { Text("Switch source\u2026") },
+                    onClick = {
+                        showModelMenu = false
+                        showServerMenu = true
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** The model picker in image mode: image servers, and the selected one's image models. */
+@Composable
+private fun ImageServerModelSelector(
+    state: ChatUiState,
+    onSwitchServer: (String) -> Unit,
+    onSwitchModel: (String) -> Unit,
+) {
+    var showServerMenu by remember { mutableStateOf(false) }
+    var showModelMenu by remember { mutableStateOf(false) }
+    val serverName = state.selectedImageServer?.name ?: "No image server"
+    val modelName = when {
+        state.isLoadingImageModels -> "Loading..."
+        else -> state.selectedImageModelId?.let { it.substringAfterLast("/").ifBlank { it } } ?: "Choose a model"
+    }
+
+    Box {
+        TextButton(
+            onClick = { if (state.imageModels.isNotEmpty()) showModelMenu = true else showServerMenu = true },
+            modifier = Modifier.semantics { contentDescription = "Switch image server or model: $serverName, $modelName" },
+        ) {
+            if (state.isLoadingImageModels) {
+                CircularProgressIndicator(modifier = Modifier.size(12.dp).padding(end = 4.dp), strokeWidth = 1.5.dp)
+            } else {
+                Icon(
+                    Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp).padding(end = 4.dp),
+                )
+            }
+            Text(
+                "$serverName · $modelName",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (state.selectedImageModelId == null && !state.isLoadingImageModels) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        DropdownMenu(expanded = showServerMenu, onDismissRequest = { showServerMenu = false }) {
+            state.imageServers.forEach { server ->
+                DropdownMenuItem(
+                    text = { Text(server.name) },
+                    leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                    onClick = {
+                        showServerMenu = false
+                        onSwitchServer(server.id)
+                    },
+                )
+            }
+        }
+
+        DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
+            state.imageModels.forEach { model ->
+                DropdownMenuItem(
+                    text = { Text(model.substringAfterLast("/").ifBlank { model }) },
+                    trailingIcon = if (model == state.selectedImageModelId) {
+                        { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        showModelMenu = false
+                        onSwitchModel(model)
+                    },
+                )
+            }
+            if (state.imageServers.size > 1) {
+                androidx.compose.material3.HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Switch image server\u2026") },
                     onClick = {
                         showModelMenu = false
                         showServerMenu = true

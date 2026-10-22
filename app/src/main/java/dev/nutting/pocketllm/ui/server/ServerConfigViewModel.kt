@@ -140,10 +140,6 @@ class ServerConfigViewModel(
             _uiState.update { it.copy(error = "Name and URL are required") }
             return
         }
-        if (editing.needsImageModel && editing.imageModelId.isBlank() && editing.detection is Detection.Found) {
-            _uiState.update { it.copy(error = "Choose the image model this server should use") }
-            return
-        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
