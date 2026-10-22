@@ -61,6 +61,7 @@ fun MessageInput(
     onAttachmentConsumed: () -> Unit = {},
     /** Image models need an instruction with attachments, so Send waits for text. */
     textRequiredWithImages: Boolean = false,
+    placeholder: String = "Type a message...",
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     val attachedImages = remember { mutableStateListOf<Uri>() }
@@ -154,7 +155,7 @@ fun MessageInput(
                         .padding(end = 8.dp)
                         .focusRequester(focusRequester),
                     placeholder = {
-                        Text(if (textRequiredWithImages && attachedImages.isNotEmpty()) "Describe the change…" else "Type a message...")
+                        Text(if (textRequiredWithImages && attachedImages.isNotEmpty()) "Describe the change…" else placeholder)
                     },
                     enabled = !isStreaming,
                     maxLines = 6,

@@ -40,6 +40,6 @@ sd-server has **no authentication**. Keep it on your LAN or a VPN such as Tailsc
 
 ## 4. Pocket LLM
 
-1. Add a server with base URL `http://<host>:8080`. The app detects stable-diffusion.cpp and labels the server "Image server".
-2. In a chat, pick `sd-cpp-local` (shown with an image badge) and type a prompt.
-3. Optional: in Server settings, raise the image timeout if you use CPU offload or slow hardware. The default is 30 min.
+1. In **Manage servers**, add a server with base URL `http://<host>:8080`. While you type, the app checks the URL, finds stable-diffusion.cpp and switches the type to **Image generation** ("Detected stable-diffusion.cpp · <model>"). It's listed under **Image servers**.
+2. In a chat, switch the message bar from **Chat** to **Image** and type a prompt. The server beside the toggle receives it; the sliders icon opens the image settings.
+3. Optional: raise the server's image timeout if you use CPU offload or slow hardware. The default is 30 min.

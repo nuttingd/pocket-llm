@@ -90,7 +90,7 @@ fun AppNavGraph(
                     parameterPresetDao = container.parameterPresetDao,
                     compactionSummaryDao = container.compactionSummaryDao,
                     imageJobLauncher = container.imageJobLauncher,
-                    modelClassifier = container.modelClassifier,
+                    imageServerDetector = container.imageServerDetector,
                     imageJobDao = container.imageJobDao,
                     generatedImageDao = container.generatedImageDao,
                 )
@@ -131,7 +131,7 @@ fun AppNavGraph(
                     parameterPresetDao = container.parameterPresetDao,
                     compactionSummaryDao = container.compactionSummaryDao,
                     imageJobLauncher = container.imageJobLauncher,
-                    modelClassifier = container.modelClassifier,
+                    imageServerDetector = container.imageServerDetector,
                     imageJobDao = container.imageJobDao,
                     generatedImageDao = container.generatedImageDao,
                 )
@@ -161,10 +161,7 @@ fun AppNavGraph(
                 ServerConfigViewModel(
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
-                    detectImageServer = { server ->
-                        val info = container.modelClassifier.serverInfo(server, forceRefresh = true)
-                        info.capabilities?.let { it.model?.name ?: "stable-diffusion.cpp" }
-                    },
+                    imageServerDetector = container.imageServerDetector,
                 )
             }
             ServerConfigScreen(
@@ -178,10 +175,7 @@ fun AppNavGraph(
                 ServerConfigViewModel(
                     serverRepository = container.serverRepository,
                     settingsRepository = container.settingsRepository,
-                    detectImageServer = { server ->
-                        val info = container.modelClassifier.serverInfo(server, forceRefresh = true)
-                        info.capabilities?.let { it.model?.name ?: "stable-diffusion.cpp" }
-                    },
+                    imageServerDetector = container.imageServerDetector,
                 )
             }
             ServerConfigScreen(

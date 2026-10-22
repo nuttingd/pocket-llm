@@ -16,6 +16,7 @@ import dev.nutting.pocketllm.data.local.entity.ImageDialect
 import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
+import dev.nutting.pocketllm.data.local.entity.ServerKind
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.model.DownloadStatus
 import dev.nutting.pocketllm.data.local.model.LocalModelStore
@@ -33,8 +34,7 @@ import dev.nutting.pocketllm.domain.LocalLlmClient
 import dev.nutting.pocketllm.domain.TitleRequest
 import dev.nutting.pocketllm.domain.image.ImageJobLauncher
 import dev.nutting.pocketllm.domain.image.ImageParameters
-import dev.nutting.pocketllm.domain.image.ImageServerInfo
-import dev.nutting.pocketllm.domain.image.ModelClassifier
+import dev.nutting.pocketllm.domain.image.ImageServerDetector
 import dev.nutting.pocketllm.domain.image.describeImageReplies
 import dev.nutting.pocketllm.util.ImageCompressor
 import dev.nutting.pocketllm.util.TokenCounter
@@ -68,7 +68,7 @@ class ChatViewModel(
     private val parameterPresetDao: ParameterPresetDao? = null,
     private val compactionSummaryDao: CompactionSummaryDao? = null,
     private val imageJobLauncher: ImageJobLauncher? = null,
-    private val modelClassifier: ModelClassifier? = null,
+    private val imageServerDetector: ImageServerDetector? = null,
     private val imageJobDao: ImageJobDao? = null,
     private val generatedImageDao: GeneratedImageDao? = null,
 ) : ViewModel() {
@@ -100,7 +100,7 @@ class ChatViewModel(
         loadPresets()
         observeFontSize()
         observeLocalModels()
-        observeImageModels()
+        observeImageServers()
     }
 
     fun loadConversation(conversationId: String?) {
@@ -195,7 +195,8 @@ class ChatViewModel(
     private fun loadServers() {
         viewModelScope.launch {
             serverRepository.getAll().collect { servers ->
-                _uiState.update { it.copy(availableServers = servers, serversLoaded = true) }
+                val (image, chat) = servers.partition { it.kind == ServerKind.IMAGE }
+                _uiState.update { it.copy(availableServers = chat, imageServers = image, serversLoaded = true) }
             }
         }
     }
@@ -239,10 +240,14 @@ class ChatViewModel(
         preferredModelId: String? = null,
     ) {
         viewModelScope.launch {
-            val serverId = preferredServerId?.takeIf { it.isNotBlank() }
+            val rememberedId = preferredServerId?.takeIf { it.isNotBlank() }
                 ?: settingsRepository.getLastActiveServerId().first()
-            if (serverId.isBlank()) return@launch
-            val server = serverRepository.getById(serverId).first() ?: return@launch
+            // Only chat servers chat; fall back to the first one when the remembered server is gone or an image server
+            val server = rememberedId.takeIf { it.isNotBlank() }?.let { serverRepository.getById(it).first() }
+                ?.takeIf { it.kind == ServerKind.CHAT }
+                ?: serverRepository.getAll().first().firstOrNull { it.kind == ServerKind.CHAT }
+                ?: return@launch
+            val serverId = server.id
             _uiState.update { it.copy(selectedServer = server, isLoadingModels = true) }
 
             try {
@@ -376,41 +381,43 @@ class ChatViewModel(
         }
     }
 
-    /** Tracks whether the selected server's models generate images (detection plus the user's overrides). */
+    /**
+     * Keeps the image server selection (the remembered one, else the first) and image mode in step with the
+     * servers, and probes the selected image server for what it supports.
+     */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private fun observeImageModels() {
-        val classifier = modelClassifier ?: return
+    private fun observeImageServers() {
         viewModelScope.launch {
-            _uiState.map { state -> state.selectedServer?.takeUnless { state.useLocalModel } }
+            val imageMode = settingsRepository.getComposerImageMode().first()
+            _uiState.update { it.copy(imageMode = imageMode) }
+        }
+        viewModelScope.launch {
+            combine(serverRepository.getAll(), settingsRepository.getLastActiveImageServerId()) { servers, lastId ->
+                val image = servers.filter { it.kind == ServerKind.IMAGE }
+                image.firstOrNull { it.id == lastId } ?: image.firstOrNull()
+            }.collect { server -> _uiState.update { it.copy(selectedImageServer = server) } }
+        }
+        val detector = imageServerDetector ?: return
+        viewModelScope.launch {
+            _uiState.map { it.selectedImageServer }
                 .distinctUntilChanged { a, b -> a?.id == b?.id && a?.baseUrl == b?.baseUrl }
-                .flatMapLatest { server ->
-                    if (server == null) {
-                        flowOf<Pair<ImageServerInfo?, Map<String, Boolean>>>(null to emptyMap())
-                    } else {
-                        classifier.overrides(server.id).map { overrides -> classifier.serverInfo(server) to overrides }
-                    }
-                }
-                .collect { (info, overrides) ->
-                    _uiState.update {
-                        it.copy(
-                            imageServerDetected = info?.dialect == ImageDialect.SD_CPP,
-                            imageCapabilities = info?.capabilities,
-                            imageModelOverrides = overrides,
-                        )
-                    }
+                .flatMapLatest { server -> flow { emit(server?.let { detector.serverInfo(it) }) } }
+                .collect { info ->
+                    _uiState.update { it.copy(imageDialect = info?.dialect, imageCapabilities = info?.capabilities) }
                 }
         }
     }
 
-    /** Marks a model of the selected server as generating images (true), chatting (false), or back to automatic (null). */
-    fun setImageModelOverride(modelId: String, isImageModel: Boolean?) {
-        val classifier = modelClassifier ?: return
-        val server = _uiState.value.selectedServer ?: return
-        viewModelScope.launch {
-            val detected = _uiState.value.imageServerDetected
-            // Choosing what detection would say anyway clears the override, so later detection changes apply
-            classifier.setOverride(server.id, modelId, isImageModel?.takeIf { it != detected })
-        }
+    /** Switches the composer between chatting and generating images. */
+    fun setImageMode(enabled: Boolean) {
+        _uiState.update { it.copy(imageMode = enabled) }
+        viewModelScope.launch { settingsRepository.setComposerImageMode(enabled) }
+    }
+
+    fun selectImageServer(serverId: String) {
+        val server = _uiState.value.imageServers.firstOrNull { it.id == serverId } ?: return
+        _uiState.update { it.copy(selectedImageServer = server) }
+        viewModelScope.launch { settingsRepository.setLastActiveImageServerId(serverId) }
     }
 
     /** Saves this conversation's image settings; a new chat keeps them until its first prompt creates it. */
@@ -450,30 +457,60 @@ class ChatViewModel(
         viewModelScope.launch { launcher.cancel(jobId) }
     }
 
-    private suspend fun sendImagePrompt(
-        conversationId: String,
-        prompt: String,
-        server: ServerProfileEntity,
-        modelId: String,
-        imageDataUrls: List<String>,
-    ) {
+    /** Sends a prompt (with photos, an edit) to [server], creating the conversation first if this is a new chat. */
+    private fun sendImagePrompt(prompt: String, server: ServerProfileEntity, imageDataUrls: List<String>) {
         val launcher = imageJobLauncher ?: return
-        isFirstMessage = false
-        try {
-            if (imageDataUrls.isEmpty()) {
-                launcher.generate(conversationId, prompt.trim(), server, modelId)
-            } else {
-                launcher.edit(conversationId, prompt.trim(), imageDataUrls, server, modelId)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ImageJobLauncher.EditNotSupportedException) {
-            Log.e(TAG, "Image server can't edit", e)
-            _uiState.update { it.copy(error = e.message) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Couldn't start image generation", e)
-            _uiState.update { it.copy(error = "Couldn't start image generation: ${e.message}") }
+        val state = _uiState.value
+        if (state.imageDialect == ImageDialect.OPENAI_IMAGES && server.imageModelId.isNullOrBlank()) {
+            // Say so before a new chat is created for a prompt that can't be sent
+            _uiState.update { it.copy(error = ImageJobLauncher.NoImageModelException(server.name).message) }
+            return
         }
+        viewModelScope.launch {
+            _uiState.update { it.copy(error = null) }
+            try {
+                val conversationId = state.conversationId ?: createConversation(prompt, state)
+                isFirstMessage = false
+                if (imageDataUrls.isEmpty()) {
+                    launcher.generate(conversationId, prompt.trim(), server)
+                } else {
+                    launcher.edit(conversationId, prompt.trim(), imageDataUrls, server)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ImageJobLauncher.EditNotSupportedException) {
+                Log.e(TAG, "Image server can't edit", e)
+                _uiState.update { it.copy(error = e.message) }
+            } catch (e: ImageJobLauncher.NoImageModelException) {
+                Log.e(TAG, "Image server has no model set", e)
+                _uiState.update { it.copy(error = e.message) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Couldn't start image generation", e)
+                _uiState.update { it.copy(error = "Couldn't start image generation: ${e.message}") }
+            }
+        }
+    }
+
+    /** Creates the conversation for a new chat's first image prompt, titled by the prompt. */
+    private suspend fun createConversation(prompt: String, state: ChatUiState): String {
+        val conversationId = UUID.randomUUID().toString()
+        val title = prompt.take(50).let { if (prompt.length > 50) "$it..." else it }
+        val now = System.currentTimeMillis()
+        conversationRepository.create(
+            ConversationEntity(
+                id = conversationId,
+                title = title,
+                lastServerProfileId = state.selectedServer?.id?.takeUnless { state.useLocalModel },
+                lastModelId = state.selectedModelId,
+                imageParamsJson = encodeImageParams(state.imageParams),
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+        _uiState.update { it.copy(conversationId = conversationId, conversationTitle = title) }
+        settingsRepository.setLastActiveConversationId(conversationId)
+        observeConversation(conversationId)
+        return conversationId
     }
 
     private fun regenerateImage(message: MessageEntity, job: ImageJobEntity) {
@@ -611,8 +648,8 @@ class ChatViewModel(
     }
 
     fun sendMessageWithImages(content: String, imageUris: List<Uri>, context: Context) {
-        if (_uiState.value.selectedModelIsImage) {
-            // Attachments sent to an image model are the images to edit
+        if (_uiState.value.imageModeActive) {
+            // Attachments sent in image mode are the images to edit
             sendMessageInternal(content, imageUris.mapNotNull { ImageCompressor.compressAndEncode(context, it) })
             return
         }
@@ -635,6 +672,10 @@ class ChatViewModel(
 
     private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList()) {
         val state = _uiState.value
+        state.selectedImageServer?.takeIf { state.imageModeActive }?.let { imageServer ->
+            sendImagePrompt(content, imageServer, imageDataUrls)
+            return
+        }
         val isLocal = state.useLocalModel
         val serverId = if (isLocal) {
             LocalLlmClient.LOCAL_SERVER_ID
@@ -674,13 +715,6 @@ class ChatViewModel(
                 settingsRepository.setLastActiveConversationId(conversationId)
                 // Observe now so the user's message (and any failure) is visible before the reply completes
                 observeConversation(conversationId)
-            }
-
-            val server = state.selectedServer
-            if (!isLocal && server != null && modelClassifier?.isImageModel(server, modelId) == true) {
-                _uiState.update { it.copy(error = null) }
-                sendImagePrompt(conversationId, content, server, modelId, imageDataUrls)
-                return@launch
             }
 
             val localContextWindowSize = if (isLocal) {
