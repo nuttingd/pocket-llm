@@ -492,7 +492,7 @@ class ChatViewModel(
     }
 
     /** Sends a prompt (with photos, an edit) to [server], creating the conversation first if this is a new chat. */
-    private fun sendImagePrompt(prompt: String, server: ServerProfileEntity, imageDataUrls: List<String>) {
+    private fun sendImagePrompt(prompt: String, server: ServerProfileEntity, imageDataUrls: List<String>, negativePrompt: String?) {
         val launcher = imageJobLauncher ?: return
         val state = _uiState.value
         if (state.imageDialect == ImageDialect.OPENAI_IMAGES && server.imageModelId.isNullOrBlank()) {
@@ -505,10 +505,11 @@ class ChatViewModel(
             try {
                 val conversationId = state.conversationId ?: createConversation(prompt, state)
                 isFirstMessage = false
+                val negative = negativePrompt?.trim()?.ifEmpty { null }
                 if (imageDataUrls.isEmpty()) {
-                    launcher.generate(conversationId, prompt.trim(), server)
+                    launcher.generate(conversationId, prompt.trim(), server, negative)
                 } else {
-                    launcher.edit(conversationId, prompt.trim(), imageDataUrls, server)
+                    launcher.edit(conversationId, prompt.trim(), imageDataUrls, server, negative)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -677,14 +678,15 @@ class ChatViewModel(
         )
     }
 
-    fun sendMessage(content: String) {
-        sendMessageInternal(content)
+    /** Sends [content]; in image mode it's an image prompt, with an optional [negativePrompt] for this prompt only. */
+    fun sendMessage(content: String, negativePrompt: String? = null) {
+        sendMessageInternal(content, negativePrompt = negativePrompt)
     }
 
-    fun sendMessageWithImages(content: String, imageUris: List<Uri>, context: Context) {
+    fun sendMessageWithImages(content: String, imageUris: List<Uri>, context: Context, negativePrompt: String? = null) {
         if (_uiState.value.imageModeActive) {
             // Attachments sent in image mode are the images to edit
-            sendMessageInternal(content, imageUris.mapNotNull { ImageCompressor.compressAndEncode(context, it) })
+            sendMessageInternal(content, imageUris.mapNotNull { ImageCompressor.compressAndEncode(context, it) }, negativePrompt)
             return
         }
         val modelId = _uiState.value.selectedModelId
@@ -704,10 +706,10 @@ class ChatViewModel(
         return VISION_MODEL_KEYWORDS.any { lower.contains(it) }
     }
 
-    private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList()) {
+    private fun sendMessageInternal(content: String, imageDataUrls: List<String> = emptyList(), negativePrompt: String? = null) {
         val state = _uiState.value
         state.selectedImageServer?.takeIf { state.imageModeActive }?.let { imageServer ->
-            sendImagePrompt(content, imageServer, imageDataUrls)
+            sendImagePrompt(content, imageServer, imageDataUrls, negativePrompt)
             return
         }
         val isLocal = state.useLocalModel

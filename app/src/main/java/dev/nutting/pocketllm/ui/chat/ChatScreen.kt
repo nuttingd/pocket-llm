@@ -20,8 +20,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -33,6 +35,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -60,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +101,13 @@ fun ChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val requestNotificationsOnce = rememberNotificationPermissionRequest()
+    // Like the message itself, a negative prompt belongs to one image prompt and is cleared when it's sent
+    var negativePrompt by rememberSaveable { mutableStateOf("") }
+    fun takeNegativePrompt(): String? {
+        val negative = negativePrompt.takeIf { state.imageModeActive && state.imageDialect == ImageDialect.SD_CPP }
+        negativePrompt = ""
+        return negative?.ifBlank { null }
+    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -288,18 +299,22 @@ fun ChatScreen(
                         ComposerModeBar(
                             imageMode = state.imageMode,
                             onImageModeChange = viewModel::setImageMode,
+                            // Only stable-diffusion.cpp takes a negative prompt
+                            negativePromptSupported = state.imageModeActive && state.imageDialect == ImageDialect.SD_CPP,
+                            negativePrompt = negativePrompt,
+                            onNegativePromptChange = { negativePrompt = it },
                         )
                     }
                     MessageInput(
                         isStreaming = state.isStreaming,
                         onSendMessage = { text ->
                             if (state.imageModeActive) requestNotificationsOnce()
-                            viewModel.sendMessage(text)
+                            viewModel.sendMessage(text, takeNegativePrompt())
                         },
                         onStopGeneration = viewModel::stopGeneration,
                         modifier = Modifier,
                         onSendMessageWithImages = { text, uris ->
-                            viewModel.sendMessageWithImages(text, uris, context)
+                            viewModel.sendMessageWithImages(text, uris, context, takeNegativePrompt())
                         },
                         pendingAttachment = imageToEdit,
                         onAttachmentConsumed = { imageToEdit = null },
@@ -548,8 +563,13 @@ private fun ChatOverflowMenu(
 private fun ComposerModeBar(
     imageMode: Boolean,
     onImageModeChange: (Boolean) -> Unit,
+    negativePromptSupported: Boolean,
+    negativePrompt: String,
+    onNegativePromptChange: (String) -> Unit,
 ) {
+    var showNegative by rememberSaveable { mutableStateOf(false) }
     Surface(tonalElevation = 3.dp) {
+        Column {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -574,6 +594,37 @@ private fun ComposerModeBar(
                     ) { Text(label, style = MaterialTheme.typography.labelMedium) }
                 }
             }
+            if (negativePromptSupported) {
+                Spacer(Modifier.weight(1f))
+                FilterChip(
+                    selected = showNegative || negativePrompt.isNotEmpty(),
+                    onClick = { showNegative = !showNegative || negativePrompt.isNotEmpty() },
+                    label = { Text("Exclude", style = MaterialTheme.typography.labelMedium) },
+                    leadingIcon = { Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    modifier = Modifier.semantics { contentDescription = "Negative prompt" },
+                )
+            }
+        }
+        if (negativePromptSupported && (showNegative || negativePrompt.isNotEmpty())) {
+            OutlinedTextField(
+                value = negativePrompt,
+                onValueChange = onNegativePromptChange,
+                placeholder = { Text("What to keep out of this image") },
+                label = { Text("Negative prompt") },
+                singleLine = true,
+                trailingIcon = if (negativePrompt.isNotEmpty()) {
+                    {
+                        IconButton(
+                            onClick = { onNegativePromptChange("") },
+                            modifier = Modifier.semantics { contentDescription = "Clear negative prompt" },
+                        ) { Icon(Icons.Default.Close, contentDescription = null) }
+                    }
+                } else {
+                    null
+                },
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
+            )
+        }
         }
     }
 }

@@ -21,7 +21,6 @@ data class ImageParameters(
     val scheduler: String? = null,
     /** Null means a fresh random seed per generation. */
     val seed: Long? = null,
-    val negativePrompt: String? = null,
 )
 
 /** The concrete values sent for one job, stored with the job and its images. */
@@ -51,7 +50,13 @@ data class ResolvedImageParameters(
  *   The generic dialect drops seed, steps, CFG, sampler and negative prompt, because there's no standard
  *   spelling for them and servers silently ignore unknown fields.
  */
-fun ImageParameters.resolve(dialect: ImageDialect, limits: SdCppLimits? = null, random: Random = Random.Default): ResolvedImageParameters {
+fun ImageParameters.resolve(
+    dialect: ImageDialect,
+    limits: SdCppLimits? = null,
+    random: Random = Random.Default,
+    /** What to keep out of the image; given with each prompt, like the prompt itself. */
+    negativePrompt: String? = null,
+): ResolvedImageParameters {
     val minW = limits?.minWidth ?: MIN_SIDE
     val maxW = limits?.maxWidth ?: MAX_SIDE
     val minH = limits?.minHeight ?: MIN_SIDE

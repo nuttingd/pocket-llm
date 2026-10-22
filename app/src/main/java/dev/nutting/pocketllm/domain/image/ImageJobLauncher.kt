@@ -48,11 +48,11 @@ class ImageJobLauncher(
      * Appends a prompt and a pending image reply to the conversation, and starts generating on image [server].
      * Returns the job id. Throws [NoImageModelException] when the server needs a model and none is set.
      */
-    suspend fun generate(conversationId: String, prompt: String, server: ServerProfileEntity): String {
+    suspend fun generate(conversationId: String, prompt: String, server: ServerProfileEntity, negativePrompt: String? = null): String {
         val modelId = imageModelOf(server)
         val conversation = db.conversationDao().getById(conversationId).first()
             ?: throw IllegalStateException("Conversation not found: $conversationId")
-        val params = resolveParams(conversation.imageParamsJson, server)
+        val params = resolveParams(conversation.imageParamsJson, server, negativePrompt = negativePrompt)
         val parent = conversation.activeLeafMessageId?.let { messages.getById(it) }
         val now = clock()
         val user = MessageEntity(
@@ -71,7 +71,13 @@ class ImageJobLauncher(
      * Throws [EditNotSupportedException] when the server says it can't take input images, and
      * [NoImageModelException] when the server needs a model and none is set.
      */
-    suspend fun edit(conversationId: String, prompt: String, imageDataUrls: List<String>, server: ServerProfileEntity): String {
+    suspend fun edit(
+        conversationId: String,
+        prompt: String,
+        imageDataUrls: List<String>,
+        server: ServerProfileEntity,
+        negativePrompt: String? = null,
+    ): String {
         require(imageDataUrls.isNotEmpty()) { "An edit needs at least one image" }
         val modelId = imageModelOf(server)
         val info = detector.serverInfo(server)
@@ -81,7 +87,7 @@ class ImageJobLauncher(
         val conversation = db.conversationDao().getById(conversationId).first()
             ?: throw IllegalStateException("Conversation not found: $conversationId")
         val sourceSize = imageDataUrls.firstNotNullOfOrNull { decodeDataUrl(it) }?.let { sniffImage(it.bytes) }?.let { it.width to it.height }
-        val params = resolveParams(conversation.imageParamsJson, server, sourceSize)
+        val params = resolveParams(conversation.imageParamsJson, server, sourceSize, negativePrompt)
         val parent = conversation.activeLeafMessageId?.let { messages.getById(it) }
         val now = clock()
         val user = MessageEntity(
@@ -94,12 +100,15 @@ class ImageJobLauncher(
         return job.id
     }
 
-    /** Generates a new variation of [reply] as a sibling branch, using the current server, model and parameters. */
+    /**
+     * Generates a new variation of [reply] as a sibling branch, using the current server, model and parameters,
+     * and the same prompt and negative prompt.
+     */
     suspend fun regenerate(reply: MessageEntity, server: ServerProfileEntity, modelId: String): String? {
         val source = db.imageJobDao().getByMessageId(reply.id) ?: return null
         val user = reply.parentMessageId?.let { messages.getById(it) } ?: return null
         val conversation = db.conversationDao().getById(reply.conversationId).first() ?: return null
-        val params = resolveParams(conversation.imageParamsJson, server, sourceSizeOf(source))
+        val params = resolveParams(conversation.imageParamsJson, server, sourceSizeOf(source), negativePromptOf(source))
         val now = clock()
         val job = newJob(reply.conversationId, source.prompt, server, modelId, params.first, params.second, source.kind, source.sourceMessageId, now)
         insertReply(reply.conversationId, null, job, now, parentForReply = user)
@@ -112,7 +121,7 @@ class ImageJobLauncher(
         val job = db.imageJobDao().getById(jobId) ?: return
         val server = db.serverProfileDao().getById(job.serverId).first() ?: return
         val conversation = db.conversationDao().getById(job.conversationId).first() ?: return
-        val (_, params) = resolveParams(conversation.imageParamsJson, server, sourceSizeOf(job))
+        val (_, params) = resolveParams(conversation.imageParamsJson, server, sourceSizeOf(job), negativePromptOf(job))
         if (db.imageJobDao().resetForRetry(jobId, imageJson.encodeToString(ResolvedImageParameters.serializer(), params), clock()) > 0) {
             scheduler.enqueue(jobId, replace = true)
         }
@@ -147,6 +156,7 @@ class ImageJobLauncher(
         imageParamsJson: String?,
         server: ServerProfileEntity,
         sourceSize: Pair<Int, Int>? = null,
+        negativePrompt: String? = null,
     ): Pair<ImageDialect, ResolvedImageParameters> {
         val info = detector.serverInfo(server)
         var settings = imageParamsJson?.let {
@@ -158,7 +168,7 @@ class ImageJobLauncher(
             val (width, height) = editSizeFor(sourceSize.first, sourceSize.second)
             settings = settings.copy(width = width, height = height)
         }
-        return info.dialect to settings.resolve(info.dialect, info.capabilities?.limits, random)
+        return info.dialect to settings.resolve(info.dialect, info.capabilities?.limits, random, negativePrompt)
     }
 
     /**
@@ -171,6 +181,10 @@ class ImageJobLauncher(
         if (info.dialect != ImageDialect.SD_CPP) throw NoImageModelException(server.name)
         return info.capabilities?.model?.name ?: SD_CPP_MODEL
     }
+
+    /** The negative prompt a job was sent with; it belongs to the prompt, so a regenerate or retry keeps it. */
+    private fun negativePromptOf(job: ImageJobEntity): String? =
+        runCatching { imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson).negativePrompt }.getOrNull()
 
     private suspend fun sourceSizeOf(job: ImageJobEntity): Pair<Int, Int>? {
         if (job.kind != ImageJobKind.EDIT) return null

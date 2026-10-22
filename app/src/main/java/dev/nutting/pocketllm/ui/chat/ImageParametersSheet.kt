@@ -175,14 +175,6 @@ fun ImageParametersSheet(
                 if (params.seed != null) {
                     TextButton(onClick = { onParamsChanged(params.copy(seed = null)) }) { Text("Use a random seed") }
                 }
-                OutlinedTextField(
-                    value = params.negativePrompt.orEmpty(),
-                    onValueChange = { onParamsChanged(params.copy(negativePrompt = it.ifEmpty { null })) },
-                    label = { Text("Negative prompt") },
-                    placeholder = { Text(defaults?.negativePrompt?.ifBlank { null } ?: "What to keep out of the image") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                )
             }
             Spacer(Modifier.height(16.dp))
         }

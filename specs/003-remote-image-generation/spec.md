@@ -16,6 +16,9 @@ In use, treating image servers like chat servers (an image model chosen in the c
   - The model picker at the top follows the mode. In Chat mode it lists chat servers and models; in Image mode it lists image servers and the selected server's image models: the one a stable-diffusion.cpp server serves, or the models an OpenAI images server lists.
   - Choosing an image model saves it on that server. The top bar's settings button opens the image settings in Image mode.
   - Image mode sends prompts (and attached photos, as edits) to the selected image server and model.
+  - **Negative prompt:** it belongs to one prompt, like the prompt itself, so it isn't a saved setting. In Image mode on a stable-diffusion.cpp server, an **Exclude** chip in the message bar reveals a negative-prompt field. It's sent with that prompt, then cleared.
+    - Regenerating or retrying an image keeps the negative prompt it was made with.
+    - The image caption shows it ("excluding “blurry”").
   - One conversation can mix chat replies and image replies.
 - **Migration:** a server that already ran image jobs, or had a model marked "Generates images", becomes an image server and keeps that model. The per-model overrides are removed.
 

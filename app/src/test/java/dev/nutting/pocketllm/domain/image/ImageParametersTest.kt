@@ -53,8 +53,8 @@ class ImageParametersTest {
 
     @Test
     fun `given native settings when resolved for sd-server then they map to the native request and unset ones are omitted`() {
-        val request = ImageParameters(steps = 8, cfg = 1f, sampler = "euler", negativePrompt = "blurry")
-            .resolve(ImageDialect.SD_CPP).toSdCppRequest("a fox", previewMode = "proj")
+        val request = ImageParameters(steps = 8, cfg = 1f, sampler = "euler")
+            .resolve(ImageDialect.SD_CPP, negativePrompt = "blurry").toSdCppRequest("a fox", previewMode = "proj")
 
         assertEquals(8, request.sampleParams?.sampleSteps)
         assertEquals(1f, request.sampleParams?.guidance?.txtCfg)
@@ -70,8 +70,8 @@ class ImageParametersTest {
 
     @Test
     fun `given the generic images api when resolved then only size and count are sent`() {
-        val resolved = ImageParameters(width = 768, height = 1344, count = 2, steps = 8, cfg = 4f, seed = 5, negativePrompt = "x")
-            .resolve(ImageDialect.OPENAI_IMAGES)
+        val resolved = ImageParameters(width = 768, height = 1344, count = 2, steps = 8, cfg = 4f, seed = 5)
+            .resolve(ImageDialect.OPENAI_IMAGES, negativePrompt = "x")
 
         assertNull(resolved.seed)
         assertNull(resolved.steps)
