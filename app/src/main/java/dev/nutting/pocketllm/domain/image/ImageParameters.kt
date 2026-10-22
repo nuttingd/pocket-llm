@@ -56,6 +56,8 @@ fun ImageParameters.resolve(
     random: Random = Random.Default,
     /** What to keep out of the image; given with each prompt, like the prompt itself. */
     negativePrompt: String? = null,
+    /** Steps the server always runs (a fixed `--sigmas` schedule); recorded instead of the setting it overrides. */
+    fixedSteps: Int? = null,
 ): ResolvedImageParameters {
     val minW = limits?.minWidth ?: MIN_SIDE
     val maxW = limits?.maxWidth ?: MAX_SIDE
@@ -68,7 +70,7 @@ fun ImageParameters.resolve(
         height = snapSide(height ?: DEFAULT_SIDE, minH, maxH),
         count = (count ?: 1).coerceIn(1, maxCount),
         seed = if (native) (seed ?: random.nextLong(0, MAX_RANDOM_SEED)) else null,
-        steps = steps.takeIf { native },
+        steps = if (native) fixedSteps ?: steps else null,
         cfg = cfg.takeIf { native },
         sampler = sampler?.takeIf { native && it.isNotBlank() },
         scheduler = scheduler?.takeIf { native && it.isNotBlank() },

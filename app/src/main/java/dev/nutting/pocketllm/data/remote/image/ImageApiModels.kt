@@ -27,6 +27,13 @@ data class SdCppCapabilities(
 
     fun supportsImgGen(): Boolean = IMG_GEN in supportedModes
 
+    /**
+     * The step count the server always uses, when it was started with a fixed noise schedule (`--sigmas`).
+     * stable-diffusion.cpp then runs one step per sigma interval whatever a request asks for.
+     */
+    val fixedSteps: Int?
+        get() = imgGenDefaults?.sampleParams?.customSigmas?.takeIf { it.size > 1 }?.let { it.size - 1 }
+
     /** A boolean feature flag for image generation, e.g. `ref_images`, `cancel_queued`, `preview`. */
     fun imgGenFeature(name: String): Boolean = imgGenFeatureOrNull(name) == true
 
@@ -58,6 +65,8 @@ data class SdCppSampleParams(
     @SerialName("sample_method") val sampleMethod: String? = null,
     @SerialName("sample_steps") val sampleSteps: Int? = null,
     val guidance: SdCppGuidance? = null,
+    /** A fixed noise schedule (e.g. `--sigmas qwen-image-2.1-turbo`); never sent, only read from the server's defaults. */
+    @SerialName("custom_sigmas") val customSigmas: List<Float>? = null,
 )
 
 @Serializable

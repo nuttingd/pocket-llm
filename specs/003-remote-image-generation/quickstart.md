@@ -32,7 +32,8 @@ sd-server --listen-ip 0.0.0.0 --listen-port 8080 \
   - Without it, or with a model that can't edit, sd-server may simply ignore the attached photo and generate a new image from the prompt alone, without reporting an error.
   - If an edit comes back unrelated to your photo, check this first.
 - **`--offload-to-cpu`:** add it on GPUs with 16 GB or less.
-- **Base model (not Turbo):** drop `--sigmas`, and use `--steps 20 --cfg-scale 6.0`.
+- **`--sigmas qwen-image-2.1-turbo`** fixes the step count at 8. stable-diffusion.cpp runs one step per interval of a fixed schedule, whatever a request asks for. The app detects this and locks Steps in Image settings.
+- **Base model (not Turbo):** drop `--sigmas`, and use `--steps 20 --cfg-scale 6.0`. Steps can then be chosen per conversation.
 
 ## 3. Security
 

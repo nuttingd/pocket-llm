@@ -168,7 +168,9 @@ class ImageJobLauncher(
             val (width, height) = editSizeFor(sourceSize.first, sourceSize.second)
             settings = settings.copy(width = width, height = height)
         }
-        return info.dialect to settings.resolve(info.dialect, info.capabilities?.limits, random, negativePrompt)
+        return info.dialect to settings.resolve(
+            info.dialect, info.capabilities?.limits, random, negativePrompt, fixedSteps = info.capabilities?.fixedSteps,
+        )
     }
 
     /**
