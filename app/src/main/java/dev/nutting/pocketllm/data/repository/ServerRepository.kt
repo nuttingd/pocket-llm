@@ -45,6 +45,10 @@ class ServerRepository(
         )
     }
 
+    /** The models of a server that may not be saved yet (e.g. while it's being added). */
+    suspend fun fetchModelsAt(baseUrl: String, apiKey: String?, timeoutSeconds: Long = 30): List<ModelInfo> =
+        apiClient.fetchModels(baseUrl = baseUrl, apiKey = apiKey, timeoutSeconds = timeoutSeconds)
+
     suspend fun validateConnection(serverId: String): Result<List<ModelInfo>> = runCatching {
         fetchModels(serverId)
     }

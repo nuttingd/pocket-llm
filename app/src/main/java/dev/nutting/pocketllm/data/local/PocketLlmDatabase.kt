@@ -11,7 +11,6 @@ import dev.nutting.pocketllm.data.local.dao.ConversationDao
 import dev.nutting.pocketllm.data.local.dao.GeneratedImageDao
 import dev.nutting.pocketllm.data.local.dao.ImageJobDao
 import dev.nutting.pocketllm.data.local.dao.MessageDao
-import dev.nutting.pocketllm.data.local.dao.ModelClassificationDao
 import dev.nutting.pocketllm.data.local.dao.ServerProfileDao
 import dev.nutting.pocketllm.data.local.dao.ParameterPresetDao
 import dev.nutting.pocketllm.data.local.dao.ToolDefinitionDao
@@ -22,7 +21,6 @@ import dev.nutting.pocketllm.data.local.entity.GeneratedImageEntity
 import dev.nutting.pocketllm.data.local.entity.ImageJobEntity
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.MessageFts
-import dev.nutting.pocketllm.data.local.entity.ModelClassificationEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
 import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
@@ -39,9 +37,8 @@ import dev.nutting.pocketllm.data.local.entity.ToolDefinitionEntity
         ParameterPresetEntity::class,
         ImageJobEntity::class,
         GeneratedImageEntity::class,
-        ModelClassificationEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class PocketLlmDatabase : RoomDatabase() {
@@ -53,7 +50,6 @@ abstract class PocketLlmDatabase : RoomDatabase() {
     abstract fun parameterPresetDao(): ParameterPresetDao
     abstract fun imageJobDao(): ImageJobDao
     abstract fun generatedImageDao(): GeneratedImageDao
-    abstract fun modelClassificationDao(): ModelClassificationDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -210,13 +206,34 @@ abstract class PocketLlmDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Image servers become their own kind of server instead of chat servers whose models were classified as
+         * image models. A server that already ran image jobs, or had a model marked "Generates images", becomes an
+         * image server and keeps the model it used; the per-model overrides go away.
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `server_profiles` ADD COLUMN `kind` TEXT NOT NULL DEFAULT 'CHAT'")
+                db.execSQL("ALTER TABLE `server_profiles` ADD COLUMN `imageModelId` TEXT DEFAULT NULL")
+                db.execSQL(
+                    """UPDATE `server_profiles` SET `kind` = 'IMAGE',
+                       `imageModelId` = COALESCE(
+                           (SELECT `modelId` FROM `model_classifications` c WHERE c.`serverId` = `server_profiles`.`id` AND c.`isImageModel` = 1 LIMIT 1),
+                           (SELECT `modelId` FROM `image_jobs` j WHERE j.`serverId` = `server_profiles`.`id` AND j.`dialect` = 'OPENAI_IMAGES' ORDER BY j.`createdAt` DESC LIMIT 1))
+                       WHERE `id` IN (SELECT `serverId` FROM `image_jobs`)
+                          OR `id` IN (SELECT `serverId` FROM `model_classifications` WHERE `isImageModel` = 1)"""
+                )
+                db.execSQL("DROP TABLE IF EXISTS `model_classifications`")
+            }
+        }
+
         fun create(context: Context): PocketLlmDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 PocketLlmDatabase::class.java,
                 "pocket_llm.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         seedBuiltInTools(db)

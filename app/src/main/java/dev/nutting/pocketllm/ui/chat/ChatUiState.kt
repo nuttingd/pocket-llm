@@ -1,6 +1,7 @@
 package dev.nutting.pocketllm.ui.chat
 
 import dev.nutting.pocketllm.data.local.entity.CompactionSummaryEntity
+import dev.nutting.pocketllm.data.local.entity.ImageDialect
 import dev.nutting.pocketllm.data.local.entity.MessageEntity
 import dev.nutting.pocketllm.data.local.entity.ParameterPresetEntity
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
@@ -55,17 +56,18 @@ data class ChatUiState(
     // Image generation
     /** Image replies in this conversation by assistant message id. */
     val imageReplies: Map<String, ImageReplyState> = emptyMap(),
-    /** The selected server is an image server (stable-diffusion.cpp), so its models generate images by default. */
-    val imageServerDetected: Boolean = false,
-    /** The user's "generates images" choices for the selected server's models. */
-    val imageModelOverrides: Map<String, Boolean> = emptyMap(),
+    /** Servers set up for image generation (chat servers are in [availableServers]). */
+    val imageServers: List<ServerProfileEntity> = emptyList(),
+    val selectedImageServer: ServerProfileEntity? = null,
+    /** The composer sends prompts to the image server instead of the chat model. */
+    val imageMode: Boolean = false,
+    /** How the selected image server is spoken to, once probed. */
+    val imageDialect: ImageDialect? = null,
     /** This conversation's image settings (null fields = server defaults). */
     val imageParams: ImageParameters = ImageParameters(),
     /** What the selected image server offers (samplers, limits, defaults), when it's stable-diffusion.cpp. */
     val imageCapabilities: SdCppCapabilities? = null,
 ) {
-    fun isImageModel(modelId: String?): Boolean =
-        modelId != null && !useLocalModel && (imageModelOverrides[modelId] ?: imageServerDetected)
-
-    val selectedModelIsImage: Boolean get() = isImageModel(selectedModelId)
+    /** Prompts go to the image server: image mode is on and there's an image server to use. */
+    val imageModeActive: Boolean get() = imageMode && selectedImageServer != null
 }

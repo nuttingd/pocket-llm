@@ -1,49 +1,53 @@
 package dev.nutting.pocketllm.ui.chat
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DrawerValue
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -51,28 +55,30 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.nutting.pocketllm.data.local.entity.ImageDialect
 import dev.nutting.pocketllm.domain.image.ImageParameters
+import dev.nutting.pocketllm.llm.InferenceStatus
 import dev.nutting.pocketllm.ui.conversations.ConversationListDrawerContent
 import dev.nutting.pocketllm.ui.conversations.ConversationListViewModel
-import dev.nutting.pocketllm.llm.InferenceStatus
-import kotlinx.coroutines.launch
 import java.util.Locale
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,8 +111,8 @@ fun ChatScreen(
     }
 
     // Redirect to setup on first launch when no servers are configured and no local models
-    LaunchedEffect(state.serversLoaded, state.availableServers.size, state.localModels.size) {
-        if (state.serversLoaded && state.availableServers.isEmpty() && state.localModels.isEmpty()) {
+    LaunchedEffect(state.serversLoaded, state.availableServers.size, state.imageServers.size, state.localModels.size) {
+        if (state.serversLoaded && state.availableServers.isEmpty() && state.imageServers.isEmpty() && state.localModels.isEmpty()) {
             onNavigateToSetup()
         }
     }
@@ -148,6 +154,8 @@ fun ChatScreen(
             onDismiss = { viewingImage = null },
             onReuseSeed = viewModel::reuseSeed,
             onEdit = { file ->
+                // Editing is image generation, so the instruction goes to the image server
+                if (state.imageServers.isNotEmpty()) viewModel.setImageMode(true)
                 imageToEdit = dev.nutting.pocketllm.ui.image.ImageExport.contentUri(context, file)
                 viewingImage = null
             },
@@ -170,10 +178,10 @@ fun ChatScreen(
         )
     }
 
-    if (state.showConversationSettings && state.selectedModelIsImage) {
+    if (state.showConversationSettings && state.imageModeActive) {
         ImageParametersSheet(
             params = state.imageParams,
-            dialect = if (state.imageServerDetected) ImageDialect.SD_CPP else ImageDialect.OPENAI_IMAGES,
+            dialect = state.imageDialect ?: ImageDialect.OPENAI_IMAGES,
             capabilities = state.imageCapabilities,
             onParamsChanged = viewModel::updateImageParams,
             onReset = { viewModel.updateImageParams(ImageParameters()) },
@@ -237,14 +245,15 @@ fun ChatScreen(
                                 onSwitchModel = viewModel::switchModel,
                                 onSwitchToLocal = viewModel::switchToLocal,
                                 onSwitchToRemote = viewModel::switchToRemote,
-                                onSetImageModel = viewModel::setImageModelOverride,
                             )
                         }
                     },
                     actions = {
                         IconButton(
                             onClick = viewModel::toggleConversationSettings,
-                            modifier = Modifier.semantics { contentDescription = "Conversation parameters" },
+                            modifier = Modifier.semantics {
+                                contentDescription = if (state.imageModeActive) "Image settings" else "Conversation parameters"
+                            },
                         ) {
                             Icon(Icons.Default.Tune, contentDescription = null)
                         }
@@ -272,21 +281,32 @@ fun ChatScreen(
                 )
             },
             bottomBar = {
-                MessageInput(
-                    isStreaming = state.isStreaming,
-                    onSendMessage = { text ->
-                        if (state.selectedModelIsImage) requestNotificationsOnce()
-                        viewModel.sendMessage(text)
-                    },
-                    onStopGeneration = viewModel::stopGeneration,
-                    modifier = Modifier,
-                    onSendMessageWithImages = { text, uris ->
-                        viewModel.sendMessageWithImages(text, uris, context)
-                    },
-                    pendingAttachment = imageToEdit,
-                    onAttachmentConsumed = { imageToEdit = null },
-                    textRequiredWithImages = state.selectedModelIsImage,
-                )
+                Column {
+                    if (state.imageServers.isNotEmpty()) {
+                        ComposerModeBar(
+                            state = state,
+                            onImageModeChange = viewModel::setImageMode,
+                            onSelectImageServer = viewModel::selectImageServer,
+                            onOpenImageSettings = viewModel::toggleConversationSettings,
+                        )
+                    }
+                    MessageInput(
+                        isStreaming = state.isStreaming,
+                        onSendMessage = { text ->
+                            if (state.imageModeActive) requestNotificationsOnce()
+                            viewModel.sendMessage(text)
+                        },
+                        onStopGeneration = viewModel::stopGeneration,
+                        modifier = Modifier,
+                        onSendMessageWithImages = { text, uris ->
+                            viewModel.sendMessageWithImages(text, uris, context)
+                        },
+                        pendingAttachment = imageToEdit,
+                        onAttachmentConsumed = { imageToEdit = null },
+                        textRequiredWithImages = state.imageModeActive,
+                        placeholder = if (state.imageModeActive) "Describe an image to generate…" else "Type a message...",
+                    )
+                }
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { padding ->
@@ -363,7 +383,7 @@ private fun ChatContent(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                if (state.selectedModelIsImage) "Describe an image to generate" else "Start a conversation",
+                if (state.imageModeActive) "Describe an image to generate" else "Start a conversation",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -519,6 +539,85 @@ private fun ChatOverflowMenu(
     }
 }
 
+/**
+ * Above the message box when image servers exist: switches between chatting and generating images, and in image
+ * mode shows which image server prompts go to (a menu when there are several) and its image settings.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ComposerModeBar(
+    state: ChatUiState,
+    onImageModeChange: (Boolean) -> Unit,
+    onSelectImageServer: (String) -> Unit,
+    onOpenImageSettings: () -> Unit,
+) {
+    Surface(tonalElevation = 3.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SingleChoiceSegmentedButtonRow {
+                val modes = listOf(false to "Chat", true to "Image")
+                modes.forEachIndexed { index, (image, label) ->
+                    SegmentedButton(
+                        selected = state.imageMode == image,
+                        onClick = { onImageModeChange(image) },
+                        shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                        icon = {
+                            Icon(
+                                if (image) Icons.Default.Image else Icons.Default.ChatBubbleOutline,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (image) "Generate images" else "Chat"
+                        },
+                    ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                }
+            }
+            if (state.imageMode) {
+                var showServers by remember { mutableStateOf(false) }
+                Box(Modifier.weight(1f).padding(start = 8.dp)) {
+                    TextButton(
+                        onClick = { showServers = true },
+                        enabled = state.imageServers.size > 1,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Image server: ${state.selectedImageServer?.name ?: "none"}"
+                        },
+                    ) {
+                        Text(
+                            state.selectedImageServer?.name ?: "No image server",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            // Leaves room for the dropdown arrow when the name is long
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (state.imageServers.size > 1) Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = showServers, onDismissRequest = { showServers = false }) {
+                        state.imageServers.forEach { server ->
+                            DropdownMenuItem(
+                                text = { Text(server.name) },
+                                leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                                onClick = {
+                                    showServers = false
+                                    onSelectImageServer(server.id)
+                                },
+                            )
+                        }
+                    }
+                }
+                IconButton(
+                    onClick = onOpenImageSettings,
+                    modifier = Modifier.semantics { contentDescription = "Image settings" },
+                ) { Icon(Icons.Default.Tune, contentDescription = null) }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ServerModelSelector(
     state: ChatUiState,
@@ -526,7 +625,6 @@ private fun ServerModelSelector(
     onSwitchModel: (String) -> Unit,
     onSwitchToLocal: (String) -> Unit = {},
     onSwitchToRemote: () -> Unit = {},
-    onSetImageModel: (String, Boolean?) -> Unit = { _, _ -> },
 ) {
     var showServerMenu by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
@@ -611,30 +709,11 @@ private fun ServerModelSelector(
 
         DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
             state.availableModels.forEach { model ->
-                val isImage = state.isImageModel(model.id)
                 DropdownMenuItem(
                     text = { Text(model.id.substringAfterLast("/").ifBlank { model.id }) },
                     onClick = {
                         showModelMenu = false
                         onSwitchModel(model.id)
-                    },
-                    trailingIcon = if (isImage) {
-                        { Icon(Icons.Default.Image, contentDescription = "Generates images") }
-                    } else {
-                        null
-                    },
-                )
-            }
-            val selected = state.selectedModelId
-            if (selected != null && !state.useLocalModel) {
-                androidx.compose.material3.HorizontalDivider()
-                val selectedIsImage = state.isImageModel(selected)
-                DropdownMenuItem(
-                    text = { Text(if (selectedIsImage) "Treat as a chat model" else "Generates images") },
-                    leadingIcon = { Icon(if (selectedIsImage) Icons.Default.ChatBubbleOutline else Icons.Default.Image, contentDescription = null) },
-                    onClick = {
-                        showModelMenu = false
-                        onSetImageModel(selected, !selectedIsImage)
                     },
                 )
             }

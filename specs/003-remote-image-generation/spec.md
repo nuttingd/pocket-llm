@@ -5,6 +5,21 @@
 **Status**: Draft
 **Input**: User description: "Support remote image generation (e.g. Qwen-Image-2.1) through a self-hosted server. Image model selected in the existing model picker; separate stable-diffusion.cpp `sd-server` profile; v1 includes image editing, advanced parameters, surviving app close, and live progress."
 
+## Amendment 1 (2026-10-22): image servers are their own kind of server
+
+In use, treating image servers like chat servers (an image model chosen in the chat model picker, with a per-model "Generates images" override) was confusing and not discoverable. This replaces that interaction model:
+
+- **Server types:** every server profile is either **Chat** or **Image generation**, chosen when it's added. While the URL is typed, the app probes it. Finding stable-diffusion.cpp pre-selects Image generation, unless the user already picked the type.
+  - The server list shows **Chat servers** and **Image servers** as separate sections.
+  - An image server that isn't stable-diffusion.cpp needs an **image model**, picked from the models it lists or typed in.
+- **Composer mode:** when any image server exists, the message bar has a **Chat / Image** toggle.
+  - Image mode sends prompts (and attached photos, as edits) to the selected image server, chosen beside the toggle. Its image settings are a tap away.
+  - The chat model picker lists only chat servers and models.
+  - One conversation can mix chat replies and image replies.
+- **Migration:** a server that already ran image jobs, or had a model marked "Generates images", becomes an image server and keeps that model. The per-model overrides are removed.
+
+FR-001, User Story 1 scenarios 1, 2 and 9, and SC-001 are revised accordingly. Where the text below says "image model in the picker", read "image mode with an image server".
+
 ## Context
 
 The app talks to OpenAI-compatible servers over `/v1/chat/completions` and only renders text (plus images the user attached).
@@ -152,7 +167,7 @@ reply is an edited version of the photo.
 
 **Model and server**
 
-- **FR-001**: The system MUST classify each (server, model) pair as chat or image. Image models are auto-detected where possible (sd-server detection, known ids). The user can override the classification per model, and the override is persisted.
+- **FR-001** *(amended)*: Each server profile MUST have a type, Chat or Image generation, which decides what it's used for. Adding a stable-diffusion.cpp server MUST pre-select Image generation by probing it. An image server that isn't stable-diffusion.cpp MUST be given the image model to use. Generating images MUST be an explicit composer mode, separate from the chat model picker.
 - **FR-002**: Image server requests MUST use a separate, user-configurable image timeout (default 30 minutes per job) that doesn't change chat timeouts.
 - **FR-003**: The system MUST send the server profile's API key (Bearer) on image requests when one is configured, the same as chat requests. sd-server itself has no authentication, so the setup guide MUST warn against exposing it beyond the LAN or VPN without an authenticating proxy.
 

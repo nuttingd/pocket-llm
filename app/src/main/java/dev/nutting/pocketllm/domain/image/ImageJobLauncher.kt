@@ -32,7 +32,7 @@ interface ImageJobScheduler {
  */
 class ImageJobLauncher(
     private val db: PocketLlmDatabase,
-    private val classifier: ModelClassifier,
+    private val detector: ImageServerDetector,
     private val scheduler: ImageJobScheduler,
     private val sdCpp: SdCppImageClient,
     private val apiKey: suspend (serverId: String) -> String?,
@@ -44,8 +44,12 @@ class ImageJobLauncher(
 ) {
     private val messages = MessageRepository(db.messageDao())
 
-    /** Appends a prompt and a pending image reply to the conversation, and starts generating. Returns the job id. */
-    suspend fun generate(conversationId: String, prompt: String, server: ServerProfileEntity, modelId: String): String {
+    /**
+     * Appends a prompt and a pending image reply to the conversation, and starts generating on image [server].
+     * Returns the job id. Throws [NoImageModelException] when the server needs a model and none is set.
+     */
+    suspend fun generate(conversationId: String, prompt: String, server: ServerProfileEntity): String {
+        val modelId = imageModelOf(server)
         val conversation = db.conversationDao().getById(conversationId).first()
             ?: throw IllegalStateException("Conversation not found: $conversationId")
         val params = resolveParams(conversation.imageParamsJson, server)
@@ -64,11 +68,13 @@ class ImageJobLauncher(
     /**
      * Appends a prompt with input images and a pending edited-image reply, and starts the edit. [imageDataUrls] are the
      * attachments as base64 data URLs, stored on the user message like any attachment. Returns the job id.
-     * Throws [EditNotSupportedException] when the server says it can't take input images.
+     * Throws [EditNotSupportedException] when the server says it can't take input images, and
+     * [NoImageModelException] when the server needs a model and none is set.
      */
-    suspend fun edit(conversationId: String, prompt: String, imageDataUrls: List<String>, server: ServerProfileEntity, modelId: String): String {
+    suspend fun edit(conversationId: String, prompt: String, imageDataUrls: List<String>, server: ServerProfileEntity): String {
         require(imageDataUrls.isNotEmpty()) { "An edit needs at least one image" }
-        val info = classifier.serverInfo(server)
+        val modelId = imageModelOf(server)
+        val info = detector.serverInfo(server)
         if (info.dialect == ImageDialect.SD_CPP && info.capabilities?.imgGenFeatureOrNull("ref_images") == false) {
             throw EditNotSupportedException()
         }
@@ -142,7 +148,7 @@ class ImageJobLauncher(
         server: ServerProfileEntity,
         sourceSize: Pair<Int, Int>? = null,
     ): Pair<ImageDialect, ResolvedImageParameters> {
-        val info = classifier.serverInfo(server)
+        val info = detector.serverInfo(server)
         var settings = imageParamsJson?.let {
             runCatching { imageJson.decodeFromString(ImageParameters.serializer(), it) }
                 .onFailure { e -> Log.w(TAG, "Ignoring unreadable image parameters", e) }
@@ -153,6 +159,17 @@ class ImageJobLauncher(
             settings = settings.copy(width = width, height = height)
         }
         return info.dialect to settings.resolve(info.dialect, info.capabilities?.limits, random)
+    }
+
+    /**
+     * The model to record (and, on an OpenAI images server, to request): the one set on the server, else the model
+     * a stable-diffusion.cpp server reports, which serves only that one.
+     */
+    private suspend fun imageModelOf(server: ServerProfileEntity): String {
+        server.imageModelId?.takeIf { it.isNotBlank() }?.let { return it }
+        val info = detector.serverInfo(server)
+        if (info.dialect != ImageDialect.SD_CPP) throw NoImageModelException(server.name)
+        return info.capabilities?.model?.name ?: SD_CPP_MODEL
     }
 
     private suspend fun sourceSizeOf(job: ImageJobEntity): Pair<Int, Int>? {
@@ -196,8 +213,13 @@ class ImageJobLauncher(
 
     class EditNotSupportedException : Exception("This image server can't edit images: it doesn't accept input images.")
 
+    class NoImageModelException(serverName: String) :
+        Exception("Choose which image model $serverName should use, in Manage servers.")
+
     companion object {
         private const val TAG = "ImageJobLauncher"
         const val CANCELLED_SERVER_BUSY = "cancelled_server_busy"
+        /** What a stable-diffusion.cpp server calls its model when it doesn't report a name. */
+        const val SD_CPP_MODEL = "stable-diffusion.cpp"
     }
 }

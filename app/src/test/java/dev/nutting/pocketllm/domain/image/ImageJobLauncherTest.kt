@@ -65,7 +65,7 @@ class ImageJobLauncherTest {
 
     private fun TestScope.launcher(random: Random = Random(7)) = ImageJobLauncher(
         db = db,
-        classifier = ModelClassifier(sdCpp, db.modelClassificationDao(), apiKey = { null }),
+        detector = ImageServerDetector(sdCpp, apiKey = { null }),
         scheduler = scheduler,
         sdCpp = sdCpp,
         apiKey = { null },
@@ -92,7 +92,7 @@ class ImageJobLauncherTest {
 
     @Test
     fun `given an image model when the user sends a prompt then the prompt, a pending reply and a job are created and started`() = runTest {
-        val jobId = launcher().generate("c1", "a red fox in snow", server, "sd-cpp-local")
+        val jobId = launcher().generate("c1", "a red fox in snow", server)
 
         val job = db.imageJobDao().getById(jobId)!!
         assertEquals(ImageJobStatus.QUEUED_LOCAL, job.status)
@@ -100,7 +100,7 @@ class ImageJobLauncherTest {
         assertEquals("a red fox in snow", job.prompt)
         assertEquals(listOf("user:a red fox in snow", "assistant:"), branch())
         val reply = db.messageDao().getById(job.messageId)!!
-        assertEquals("sd-cpp-local", reply.modelId)
+        assertEquals("stable-diffusion.cpp", reply.modelId)
         assertEquals(1, reply.depth)
         val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson)
         assertEquals(1024, params.width)
@@ -117,7 +117,7 @@ class ImageJobLauncherTest {
             )
         )
 
-        val job = db.imageJobDao().getById(launcher().generate("c1", "a fox", server, "sd-cpp-local"))!!
+        val job = db.imageJobDao().getById(launcher().generate("c1", "a fox", server))!!
 
         val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson)
         assertEquals(listOf(768, 1344, 2, 8), listOf(params.width, params.height, params.count, params.steps))
@@ -127,10 +127,10 @@ class ImageJobLauncherTest {
     @Test
     fun `given an image reply when regenerated then a sibling reply with the same prompt and a new seed becomes active`() = runTest {
         val launcher = launcher()
-        val first = db.imageJobDao().getById(launcher.generate("c1", "a fox", server, "sd-cpp-local"))!!
+        val first = db.imageJobDao().getById(launcher.generate("c1", "a fox", server))!!
         val firstReply = db.messageDao().getById(first.messageId)!!
 
-        val secondId = launcher.regenerate(firstReply, server, "sd-cpp-local")!!
+        val secondId = launcher.regenerate(firstReply, server, "stable-diffusion.cpp")!!
 
         val second = db.imageJobDao().getById(secondId)!!
         val secondReply = db.messageDao().getById(second.messageId)!!
@@ -144,7 +144,7 @@ class ImageJobLauncherTest {
     @Test
     fun `given a failed job when retried then it starts over with a fresh seed, and a successful job is left alone`() = runTest {
         val launcher = launcher()
-        val jobId = launcher.generate("c1", "a fox", server, "sd-cpp-local")
+        val jobId = launcher.generate("c1", "a fox", server)
         val before = db.imageJobDao().getById(jobId)!!
         db.imageJobDao().markFinishedUnsuccessfully(jobId, ImageJobStatus.FAILED, "server", "boom", 1)
 
@@ -166,7 +166,7 @@ class ImageJobLauncherTest {
     @Test
     fun `given a job queued on the server when the user cancels then it is cancelled locally and on the server`() = runTest {
         val launcher = launcher()
-        val jobId = launcher.generate("c1", "a fox", server, "sd-cpp-local")
+        val jobId = launcher.generate("c1", "a fox", server)
         db.imageJobDao().markSubmitted(jobId, "job_9")
 
         launcher.cancel(jobId)?.join()
@@ -180,7 +180,7 @@ class ImageJobLauncherTest {
     fun `given a job already generating when the user cancels then the reply explains the server will finish it`() = runTest {
         cancelStatus = HttpStatusCode.Conflict
         val launcher = launcher()
-        val jobId = launcher.generate("c1", "a fox", server, "sd-cpp-local")
+        val jobId = launcher.generate("c1", "a fox", server)
         db.imageJobDao().markSubmitted(jobId, "job_9")
 
         launcher.cancel(jobId)?.join()
@@ -194,7 +194,7 @@ class ImageJobLauncherTest {
     @Test
     fun `given a finished job when cancel is tapped late then nothing changes`() = runTest {
         val launcher = launcher()
-        val jobId = launcher.generate("c1", "a fox", server, "sd-cpp-local")
+        val jobId = launcher.generate("c1", "a fox", server)
         db.imageJobDao().markSucceeded(jobId, null, 2)
 
         launcher.cancel(jobId)
@@ -216,7 +216,7 @@ class ImageJobLauncherTest {
     fun `given attachments with an image model then an edit job is created from the prompt message, sized like the photo`() = runTest {
         val photo = pngDataUrl(600, 800)
 
-        val job = db.imageJobDao().getById(launcher().edit("c1", "make it night time", listOf(photo), server, "sd-cpp-local"))!!
+        val job = db.imageJobDao().getById(launcher().edit("c1", "make it night time", listOf(photo), server))!!
 
         assertEquals(ImageJobKind.EDIT, job.kind)
         val user = db.messageDao().getById(job.sourceMessageId!!)!!
@@ -234,7 +234,7 @@ class ImageJobLauncherTest {
             ConversationEntity(id = "c1", title = "Images", lastServerProfileId = "s1", createdAt = 0, updatedAt = 0, imageParamsJson = """{"width":512,"height":512}""")
         )
 
-        val job = db.imageJobDao().getById(launcher().edit("c1", "night", listOf(pngDataUrl(600, 800)), server, "sd-cpp-local"))!!
+        val job = db.imageJobDao().getById(launcher().edit("c1", "night", listOf(pngDataUrl(600, 800)), server))!!
 
         val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson)
         assertEquals(512 to 512, params.width to params.height)
@@ -244,7 +244,7 @@ class ImageJobLauncherTest {
     fun `given a server that says it takes no input images then an edit is refused before anything is created`() = runTest {
         capabilities = """{"supported_modes":["img_gen"],"features_by_mode":{"img_gen":{"ref_images":false}}}"""
 
-        val refused = runCatching { launcher().edit("c1", "night", listOf(pngDataUrl(64, 64)), server, "sd-cpp-local") }
+        val refused = runCatching { launcher().edit("c1", "night", listOf(pngDataUrl(64, 64)), server) }
 
         assertTrue(refused.exceptionOrNull() is ImageJobLauncher.EditNotSupportedException)
         assertNull(db.conversationDao().getById("c1").first()!!.activeLeafMessageId)
@@ -254,13 +254,31 @@ class ImageJobLauncherTest {
     @Test
     fun `given an edit reply when regenerated then the variation edits the same photo`() = runTest {
         val launcher = launcher()
-        val first = db.imageJobDao().getById(launcher.edit("c1", "night", listOf(pngDataUrl(600, 800)), server, "sd-cpp-local"))!!
+        val first = db.imageJobDao().getById(launcher.edit("c1", "night", listOf(pngDataUrl(600, 800)), server))!!
 
-        val second = db.imageJobDao().getById(launcher.regenerate(db.messageDao().getById(first.messageId)!!, server, "sd-cpp-local")!!)!!
+        val second = db.imageJobDao().getById(launcher.regenerate(db.messageDao().getById(first.messageId)!!, server, "stable-diffusion.cpp")!!)!!
 
         assertEquals(ImageJobKind.EDIT, second.kind)
         assertEquals(first.sourceMessageId, second.sourceMessageId)
         val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), second.paramsJson)
         assertEquals(896 to 1184, params.width to params.height)
+    }
+
+    @Test
+    fun `given an image server's model is set then jobs use it`() = runTest {
+        val job = db.imageJobDao().getById(launcher().generate("c1", "a fox", server.copy(imageModelId = "flux-schnell")))!!
+
+        assertEquals("flux-schnell", job.modelId)
+    }
+
+    @Test
+    fun `given an OpenAI images server with no model set then generating is refused before anything is created`() = runTest {
+        capabilities = "{}" // Not stable-diffusion.cpp
+        val openAiServer = server.copy(id = "s2", baseUrl = "http://localai:8080")
+
+        val refused = runCatching { launcher().generate("c1", "a fox", openAiServer) }
+
+        assertTrue(refused.exceptionOrNull() is ImageJobLauncher.NoImageModelException)
+        assertNull(db.conversationDao().getById("c1").first()!!.activeLeafMessageId)
     }
 }

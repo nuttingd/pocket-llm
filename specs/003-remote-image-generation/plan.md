@@ -5,7 +5,7 @@
 
 ## Summary
 
-The user picks an image model in the existing model picker. Each prompt becomes a **persisted image job**
+*(Amended 2026-10-22: image servers are a separate server type, and generating is an explicit Image mode in the composer; see spec Amendment 1.)* The user picks an image model in the existing model picker. Each prompt becomes a **persisted image job**
 (`image_jobs` row) run by a **WorkManager worker** with a foreground notification.
 
 - **sd-server:** the worker uses the native async API: submit → poll with progress and preview → fetch the result. This survives process death by resuming from the stored remote job id.

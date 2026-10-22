@@ -20,8 +20,8 @@ import dev.nutting.pocketllm.domain.image.ImageJobLauncher
 import dev.nutting.pocketllm.domain.image.ImageJobRunner
 import dev.nutting.pocketllm.domain.image.ImageJobScheduler
 import dev.nutting.pocketllm.domain.image.ImagePreviewStore
+import dev.nutting.pocketllm.domain.image.ImageServerDetector
 import dev.nutting.pocketllm.domain.image.ImageStore
-import dev.nutting.pocketllm.domain.image.ModelClassifier
 import dev.nutting.pocketllm.domain.image.WorkManagerImageJobScheduler
 import dev.nutting.pocketllm.domain.image.loadEditSources
 import dev.nutting.pocketllm.llm.LlmEngine
@@ -69,14 +69,12 @@ class AppContainer(context: Context) {
     val compactionSummaryDao = database.compactionSummaryDao()
     val imageJobDao = database.imageJobDao()
     val generatedImageDao = database.generatedImageDao()
-    val modelClassificationDao = database.modelClassificationDao()
 
     // Remote image generation
     val sdCppImageClient = SdCppImageClient()
     val openAiImagesClient = OpenAiImagesClient()
-    val modelClassifier = ModelClassifier(
+    val imageServerDetector = ImageServerDetector(
         sdCpp = sdCppImageClient,
-        dao = modelClassificationDao,
         apiKey = { serverId -> serverRepository.getApiKey(serverId).first() },
     )
     val imageJobScheduler: ImageJobScheduler = WorkManagerImageJobScheduler(context.applicationContext)
@@ -90,14 +88,14 @@ class AppContainer(context: Context) {
         previews = ImagePreviewStore(context.cacheDir),
         previewMode = { server ->
             // `proj` is the cheapest mode (~16 KB a frame), and sd-server reports step progress only with a preview
-            "proj".takeIf { it in modelClassifier.serverInfo(server).capabilities?.previewModes.orEmpty() }
+            "proj".takeIf { it in imageServerDetector.serverInfo(server).capabilities?.previewModes.orEmpty() }
         },
         livePreview = { settingsRepository.getImageLivePreview().first() },
         sourceImages = { job -> loadEditSources(database.messageDao(), job.sourceMessageId) },
     )
     val imageJobLauncher = ImageJobLauncher(
         db = database,
-        classifier = modelClassifier,
+        detector = imageServerDetector,
         scheduler = imageJobScheduler,
         sdCpp = sdCppImageClient,
         apiKey = { serverId -> serverRepository.getApiKey(serverId).first() },

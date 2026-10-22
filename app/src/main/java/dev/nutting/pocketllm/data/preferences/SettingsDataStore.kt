@@ -33,6 +33,8 @@ class SettingsDataStore(context: Context) {
     private val lastActiveServerId = stringPreferencesKey("last_active_server_id")
     private val lastActiveModelId = stringPreferencesKey("last_active_model_id")
     private val lastActiveConversationId = stringPreferencesKey("last_active_conversation_id")
+    private val lastActiveImageServerId = stringPreferencesKey("last_active_image_server_id")
+    private val composerImageMode = booleanPreferencesKey("composer_image_mode")
     private val compactionThresholdPct = intPreferencesKey("compaction_threshold_pct")
     private val imageMaxDimensionPx = intPreferencesKey("image_max_dimension_px")
     private val imageJpegQuality = intPreferencesKey("image_jpeg_quality")
@@ -51,6 +53,8 @@ class SettingsDataStore(context: Context) {
     fun getLastActiveServerId(): Flow<String> = dataStore.data.map { it[lastActiveServerId] ?: "" }
     fun getLastActiveModelId(): Flow<String> = dataStore.data.map { it[lastActiveModelId] ?: "" }
     fun getLastActiveConversationId(): Flow<String> = dataStore.data.map { it[lastActiveConversationId] ?: "" }
+    fun getLastActiveImageServerId(): Flow<String> = dataStore.data.map { it[lastActiveImageServerId] ?: "" }
+    fun getComposerImageMode(): Flow<Boolean> = dataStore.data.map { it[composerImageMode] ?: false }
     fun getCompactionThresholdPct(): Flow<Int> = dataStore.data.map { it[compactionThresholdPct] ?: 75 }
     fun getImageMaxDimensionPx(): Flow<Int> = dataStore.data.map { it[imageMaxDimensionPx] ?: 1024 }
     fun getImageJpegQuality(): Flow<Int> = dataStore.data.map { it[imageJpegQuality] ?: 85 }
@@ -69,6 +73,8 @@ class SettingsDataStore(context: Context) {
     suspend fun setLastActiveServerId(value: String) { dataStore.edit { it[lastActiveServerId] = value } }
     suspend fun setLastActiveModelId(value: String) { dataStore.edit { it[lastActiveModelId] = value } }
     suspend fun setLastActiveConversationId(value: String) { dataStore.edit { it[lastActiveConversationId] = value } }
+    suspend fun setLastActiveImageServerId(value: String) { dataStore.edit { it[lastActiveImageServerId] = value } }
+    suspend fun setComposerImageMode(value: Boolean) { dataStore.edit { it[composerImageMode] = value } }
     suspend fun setCompactionThresholdPct(value: Int) { dataStore.edit { it[compactionThresholdPct] = value } }
     suspend fun setImageMaxDimensionPx(value: Int) { dataStore.edit { it[imageMaxDimensionPx] = value } }
     suspend fun setImageJpegQuality(value: Int) { dataStore.edit { it[imageJpegQuality] = value } }
