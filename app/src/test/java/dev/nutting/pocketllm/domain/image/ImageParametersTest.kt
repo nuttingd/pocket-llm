@@ -1,13 +1,15 @@
 package dev.nutting.pocketllm.domain.image
 
 import dev.nutting.pocketllm.data.local.entity.ImageDialect
+import dev.nutting.pocketllm.data.remote.image.SdCppCapabilities
 import dev.nutting.pocketllm.data.remote.image.SdCppLimits
+import dev.nutting.pocketllm.data.remote.image.imageJson
+import kotlin.random.Random
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
-import kotlin.random.Random
 
 class ImageParametersTest {
 
@@ -53,8 +55,8 @@ class ImageParametersTest {
 
     @Test
     fun `given native settings when resolved for sd-server then they map to the native request and unset ones are omitted`() {
-        val request = ImageParameters(steps = 8, cfg = 1f, sampler = "euler", negativePrompt = "blurry")
-            .resolve(ImageDialect.SD_CPP).toSdCppRequest("a fox", previewMode = "proj")
+        val request = ImageParameters(steps = 8, cfg = 1f, sampler = "euler")
+            .resolve(ImageDialect.SD_CPP, negativePrompt = "blurry").toSdCppRequest("a fox", previewMode = "proj")
 
         assertEquals(8, request.sampleParams?.sampleSteps)
         assertEquals(1f, request.sampleParams?.guidance?.txtCfg)
@@ -70,8 +72,8 @@ class ImageParametersTest {
 
     @Test
     fun `given the generic images api when resolved then only size and count are sent`() {
-        val resolved = ImageParameters(width = 768, height = 1344, count = 2, steps = 8, cfg = 4f, seed = 5, negativePrompt = "x")
-            .resolve(ImageDialect.OPENAI_IMAGES)
+        val resolved = ImageParameters(width = 768, height = 1344, count = 2, steps = 8, cfg = 4f, seed = 5)
+            .resolve(ImageDialect.OPENAI_IMAGES, negativePrompt = "x")
 
         assertNull(resolved.seed)
         assertNull(resolved.steps)
@@ -80,5 +82,28 @@ class ImageParametersTest {
         val request = resolved.toOpenAiRequest("qwen-image", "a fox")
         assertEquals("768x1344", request.size)
         assertEquals(2, request.n)
+    }
+
+    @Test
+    fun `given a server started with a fixed sigma schedule then its step count is recorded instead of the setting`() {
+        val caps = imageJson.decodeFromString(
+            SdCppCapabilities.serializer(),
+            """{"supported_modes":["img_gen"],"defaults_by_mode":{"img_gen":{"sample_params":{"sample_steps":8,
+               "custom_sigmas":[1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568,0.0]}}}}""",
+        )
+        assertEquals(8, caps.fixedSteps)
+
+        val resolved = ImageParameters(steps = 32).resolve(ImageDialect.SD_CPP, fixedSteps = caps.fixedSteps)
+        assertEquals(8, resolved.steps)
+    }
+
+    @Test
+    fun `given a server without a fixed schedule then the chosen steps are sent`() {
+        val caps = imageJson.decodeFromString(
+            SdCppCapabilities.serializer(),
+            """{"supported_modes":["img_gen"],"defaults_by_mode":{"img_gen":{"sample_params":{"sample_steps":20,"custom_sigmas":[]}}}}""",
+        )
+        assertNull(caps.fixedSteps)
+        assertEquals(32, ImageParameters(steps = 32).resolve(ImageDialect.SD_CPP, fixedSteps = caps.fixedSteps).steps)
     }
 }

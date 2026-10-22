@@ -281,4 +281,33 @@ class ImageJobLauncherTest {
         assertTrue(refused.exceptionOrNull() is ImageJobLauncher.NoImageModelException)
         assertNull(db.conversationDao().getById("c1").first()!!.activeLeafMessageId)
     }
+
+    @Test
+    fun `given a negative prompt with a prompt then that job uses it, the next prompt doesn't, and a regenerate keeps it`() = runTest {
+        val launcher = launcher()
+        val first = db.imageJobDao().getById(launcher.generate("c1", "a fox", server, negativePrompt = "blurry, text"))!!
+        fun negativeOf(job: dev.nutting.pocketllm.data.local.entity.ImageJobEntity) =
+            imageJson.decodeFromString(ResolvedImageParameters.serializer(), job.paramsJson).negativePrompt
+
+        assertEquals("blurry, text", negativeOf(first))
+        assertNull(db.conversationDao().getById("c1").first()!!.imageParamsJson)
+
+        val next = db.imageJobDao().getById(launcher.generate("c1", "a cat", server))!!
+        assertNull(negativeOf(next))
+
+        val again = db.imageJobDao().getById(launcher.regenerate(db.messageDao().getById(first.messageId)!!, server, "stable-diffusion.cpp")!!)!!
+        assertEquals("blurry, text", negativeOf(again))
+    }
+
+    @Test
+    fun `given a failed job with a negative prompt when retried then it keeps the negative prompt`() = runTest {
+        val launcher = launcher()
+        val jobId = launcher.generate("c1", "a fox", server, negativePrompt = "blurry")
+        db.imageJobDao().markFinishedUnsuccessfully(jobId, ImageJobStatus.FAILED, "server", "boom", 1)
+
+        launcher.retry(jobId)
+
+        val params = imageJson.decodeFromString(ResolvedImageParameters.serializer(), db.imageJobDao().getById(jobId)!!.paramsJson)
+        assertEquals("blurry", params.negativePrompt)
+    }
 }

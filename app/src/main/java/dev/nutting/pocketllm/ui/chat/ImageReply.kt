@@ -71,6 +71,7 @@ internal fun imageCaption(image: GeneratedImageEntity): String {
         params?.steps?.let { add("$it steps") }
         image.seed?.let { add("seed $it") }
         image.durationMs?.let { add(formatElapsed(it / 1000)) }
+        params?.negativePrompt?.let { add("excluding \u201c$it\u201d") }
     }.joinToString(" · ")
 }
 

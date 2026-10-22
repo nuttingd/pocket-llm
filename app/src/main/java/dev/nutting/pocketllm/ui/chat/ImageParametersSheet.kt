@@ -151,15 +151,26 @@ fun ImageParametersSheet(
 
             if (native) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val fixedSteps = capabilities?.fixedSteps
                     NumberField(
-                        "Steps", params.steps, String::toIntOrNull,
+                        "Steps", if (fixedSteps != null) fixedSteps else params.steps, String::toIntOrNull,
                         defaults?.sampleParams?.sampleSteps?.toString() ?: "Server default", Modifier.weight(1f),
+                        enabled = fixedSteps == null,
+                        supportingText = fixedSteps?.let { "Fixed by the server's schedule" },
                     ) { onParamsChanged(params.copy(steps = it?.takeIf { s -> s > 0 })) }
                     NumberField(
                         "Guidance (CFG)", params.cfg, String::toFloatOrNull,
                         defaults?.sampleParams?.guidance?.txtCfg?.toString() ?: "Server default", Modifier.weight(1f),
                         keyboardType = KeyboardType.Decimal,
                     ) { onParamsChanged(params.copy(cfg = it)) }
+                }
+                capabilities?.fixedSteps?.let { steps ->
+                    Text(
+                        "This server always runs $steps steps: it was started with a fixed noise schedule (--sigmas), " +
+                            "as Turbo models are. To choose the step count, start sd-server without --sigmas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Choice("Sampler", params.sampler, capabilities?.samplers.orEmpty(), defaults?.sampleParams?.sampleMethod, Modifier.weight(1f)) {
@@ -175,14 +186,6 @@ fun ImageParametersSheet(
                 if (params.seed != null) {
                     TextButton(onClick = { onParamsChanged(params.copy(seed = null)) }) { Text("Use a random seed") }
                 }
-                OutlinedTextField(
-                    value = params.negativePrompt.orEmpty(),
-                    onValueChange = { onParamsChanged(params.copy(negativePrompt = it.ifEmpty { null })) },
-                    label = { Text("Negative prompt") },
-                    placeholder = { Text(defaults?.negativePrompt?.ifBlank { null } ?: "What to keep out of the image") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                )
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -201,6 +204,8 @@ private fun <T : Number> NumberField(
     placeholder: String,
     modifier: Modifier,
     keyboardType: KeyboardType = KeyboardType.Number,
+    enabled: Boolean = true,
+    supportingText: String? = null,
     onValueChange: (T?) -> Unit,
 ) {
     var text by remember { mutableStateOf(value?.toString().orEmpty()) }
@@ -217,6 +222,8 @@ private fun <T : Number> NumberField(
         label = { Text(label) },
         placeholder = { Text(placeholder) },
         isError = text.isNotBlank() && parse(text.trim()) == null,
+        enabled = enabled,
+        supportingText = supportingText?.let { { Text(it) } },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = modifier,

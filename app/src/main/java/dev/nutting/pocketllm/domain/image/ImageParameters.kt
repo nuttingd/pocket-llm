@@ -21,7 +21,6 @@ data class ImageParameters(
     val scheduler: String? = null,
     /** Null means a fresh random seed per generation. */
     val seed: Long? = null,
-    val negativePrompt: String? = null,
 )
 
 /** The concrete values sent for one job, stored with the job and its images. */
@@ -51,7 +50,15 @@ data class ResolvedImageParameters(
  *   The generic dialect drops seed, steps, CFG, sampler and negative prompt, because there's no standard
  *   spelling for them and servers silently ignore unknown fields.
  */
-fun ImageParameters.resolve(dialect: ImageDialect, limits: SdCppLimits? = null, random: Random = Random.Default): ResolvedImageParameters {
+fun ImageParameters.resolve(
+    dialect: ImageDialect,
+    limits: SdCppLimits? = null,
+    random: Random = Random.Default,
+    /** What to keep out of the image; given with each prompt, like the prompt itself. */
+    negativePrompt: String? = null,
+    /** Steps the server always runs (a fixed `--sigmas` schedule); recorded instead of the setting it overrides. */
+    fixedSteps: Int? = null,
+): ResolvedImageParameters {
     val minW = limits?.minWidth ?: MIN_SIDE
     val maxW = limits?.maxWidth ?: MAX_SIDE
     val minH = limits?.minHeight ?: MIN_SIDE
@@ -63,7 +70,7 @@ fun ImageParameters.resolve(dialect: ImageDialect, limits: SdCppLimits? = null, 
         height = snapSide(height ?: DEFAULT_SIDE, minH, maxH),
         count = (count ?: 1).coerceIn(1, maxCount),
         seed = if (native) (seed ?: random.nextLong(0, MAX_RANDOM_SEED)) else null,
-        steps = steps.takeIf { native },
+        steps = if (native) fixedSteps ?: steps else null,
         cfg = cfg.takeIf { native },
         sampler = sampler?.takeIf { native && it.isNotBlank() },
         scheduler = scheduler?.takeIf { native && it.isNotBlank() },

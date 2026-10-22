@@ -63,6 +63,9 @@ data class ChatUiState(
     val imageMode: Boolean = false,
     /** How the selected image server is spoken to, once probed. */
     val imageDialect: ImageDialect? = null,
+    /** The selected image server's models: the one a stable-diffusion.cpp server serves, or what it lists. */
+    val imageModels: List<String> = emptyList(),
+    val isLoadingImageModels: Boolean = false,
     /** This conversation's image settings (null fields = server defaults). */
     val imageParams: ImageParameters = ImageParameters(),
     /** What the selected image server offers (samplers, limits, defaults), when it's stable-diffusion.cpp. */
@@ -70,4 +73,9 @@ data class ChatUiState(
 ) {
     /** Prompts go to the image server: image mode is on and there's an image server to use. */
     val imageModeActive: Boolean get() = imageMode && selectedImageServer != null
+
+    /** The model images are generated with: the one chosen for the server, else the one a stable-diffusion.cpp server serves. */
+    val selectedImageModelId: String?
+        get() = selectedImageServer?.imageModelId?.takeIf { it.isNotBlank() }
+            ?: imageModels.firstOrNull()?.takeIf { imageDialect == ImageDialect.SD_CPP }
 }

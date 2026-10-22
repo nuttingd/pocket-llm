@@ -52,5 +52,7 @@ class ImageReplyStatusTest {
 
         assertEquals("1024×768 · 8 steps · seed 4417 · 48s", imageCaption(image))
         assertEquals("1024×768", imageCaption(image.copy(seed = null, durationMs = null, paramsJson = "{}")))
+        val withNegative = image.copy(paramsJson = """{"width":1024,"height":768,"count":1,"negativePrompt":"blurry"}""", seed = null, durationMs = null)
+        assertEquals("1024×768 · excluding \u201cblurry\u201d", imageCaption(withNegative))
     }
 }
