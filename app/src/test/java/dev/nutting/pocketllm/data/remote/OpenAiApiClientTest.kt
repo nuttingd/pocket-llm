@@ -22,6 +22,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
+/** A test client with JSON negotiation installed, as production's createClient does. */
+private fun jsonClient(engine: MockEngine) = HttpClient(engine) {
+    install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+}
+
 class OpenAiApiClientTest {
 
     private val modelsJson = """
@@ -164,6 +169,64 @@ class OpenAiApiClientTest {
         val exception = ApiException.RateLimited(retryAfterSeconds = 5)
         assertEquals("Rate limited. Retrying in 5s...", exception.message)
         assertTrue(exception.retryAfterSeconds == 5L)
+    }
+
+    @Test
+    fun `given a base url ending in v1 when fetching models then the path is not doubled`() = runTest {
+        var path = ""
+        val mockEngine = MockEngine { request ->
+            path = request.url.encodedPath
+            respond(modelsJson, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+
+        OpenAiApiClient(testClientFactory = { jsonClient(mockEngine) })
+            .fetchModels("https://litellm.example/v1", "key")
+
+        assertEquals("/v1/models", path)
+    }
+
+    @Test
+    fun `given an api key with pasted whitespace when calling then the bearer token is trimmed`() = runTest {
+        var authorization = ""
+        val mockEngine = MockEngine { request ->
+            authorization = request.headers[HttpHeaders.Authorization] ?: ""
+            respond(modelsJson, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+
+        OpenAiApiClient(testClientFactory = { jsonClient(mockEngine) })
+            .fetchModels("https://host", "  sk-abc\n")
+
+        assertEquals("Bearer sk-abc", authorization)
+    }
+
+    @Test
+    fun `given a login proxy rejecting model listing then the failure names the proxy not the key`() = runTest {
+        val mockEngine = MockEngine { respond("{}", HttpStatusCode.Unauthorized) }
+
+        val error = runCatching {
+            OpenAiApiClient(testClientFactory = { HttpClient(mockEngine) })
+                .fetchModels("https://litellm.example", "key")
+        }.exceptionOrNull()
+
+        assertTrue("expected AuthProxyRejected, got $error", error is ApiException.AuthProxyRejected)
+    }
+
+    @Test
+    fun `given the server rejecting the key when fetching models then it is reported as a bad key`() = runTest {
+        val mockEngine = MockEngine {
+            respond(
+                """{"error":{"message":"Invalid API key"}}""",
+                HttpStatusCode.Unauthorized,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+
+        val error = runCatching {
+            OpenAiApiClient(testClientFactory = { HttpClient(mockEngine) })
+                .fetchModels("https://host", "bad")
+        }.exceptionOrNull()
+
+        assertTrue("expected Unauthorized, got $error", error is ApiException.Unauthorized)
     }
 }
 

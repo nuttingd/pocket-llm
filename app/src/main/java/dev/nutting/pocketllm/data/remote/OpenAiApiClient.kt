@@ -13,10 +13,13 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import dev.nutting.pocketllm.data.remote.image.isProxiedAuthResponse
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -35,6 +38,8 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
     class NetworkUnavailable(cause: Throwable? = null) : ApiException("Network unavailable. Check your connection and try again.", cause)
     class ConnectionRefused(val host: String, cause: Throwable? = null) : ApiException("Could not connect to $host. Verify the server is running.", cause)
     class Unauthorized : ApiException("Authentication failed. Check your API key.")
+    /** A login/auth proxy in front of the server rejected the request before the server saw the key. */
+    class AuthProxyRejected : ApiException("The server's login proxy rejected the request before it reached the API. If the host sits behind a browser sign-in, its API routes need to be exempt from it.")
     class RateLimited(val retryAfterSeconds: Long?) : ApiException(
         if (retryAfterSeconds != null) "Rate limited. Retrying in ${retryAfterSeconds}s..."
         else "Rate limited by server. Try again shortly."
@@ -70,6 +75,28 @@ internal suspend fun <T> retryWithBackoff(
         }
     }
     throw lastException!!
+}
+
+/**
+ * Normalizes a configured base URL: accepts both `https://host` and `https://host/v1` (the form OpenAI clients
+ * usually take) and drops trailing slashes, so the `/v1/...` paths appended below never double up.
+ */
+internal fun String.openAiBaseUrl(): String =
+    trimEnd('/').let { if (it.endsWith("/v1")) it.dropLast(3) else it }.trimEnd('/')
+
+/**
+ * Sends the key as a Bearer token, trimming it first: a trailing space or newline pasted into the API key
+ * field is invisible in the UI but corrupts the header, which the server reports as an invalid key.
+ */
+private fun HttpRequestBuilder.bearer(apiKey: String?) {
+    val key = apiKey?.trim()?.takeIf { it.isNotEmpty() } ?: return
+    headers { append("Authorization", "Bearer $key") }
+}
+
+/** Reads a 401's body and throws the matching exception: proxy rejection or genuine auth failure. */
+private suspend fun unauthorizedFor(response: HttpResponse): ApiException {
+    val body = runCatching { response.bodyAsText() }.getOrDefault("")
+    return if (isProxiedAuthResponse(401, body)) ApiException.AuthProxyRejected() else ApiException.Unauthorized()
 }
 
 class OpenAiApiClient(
@@ -134,12 +161,12 @@ class OpenAiApiClient(
         val client = createClient(timeoutSeconds)
         return try {
             withRetry {
-                val response = client.get("${baseUrl.trimEnd('/')}/v1/models") {
-                    apiKey?.let { headers { append("Authorization", "Bearer $it") } }
+                val response = client.get("${baseUrl.openAiBaseUrl()}/v1/models") {
+                    bearer(apiKey)
                 }
                 when (response.status.value) {
                     in 200..299 -> response.body<ModelsResponse>().data
-                    401 -> throw ApiException.Unauthorized()
+                    401 -> throw unauthorizedFor(response)
                     429 -> {
                         val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
                         throw ApiException.RateLimited(retryAfter)
@@ -166,9 +193,9 @@ class OpenAiApiClient(
         val client = createClient(timeoutSeconds)
         return try {
             withRetry {
-                val response = client.post("${baseUrl.trimEnd('/')}/v1/chat/completions") {
+                val response = client.post("${baseUrl.openAiBaseUrl()}/v1/chat/completions") {
                     contentType(ContentType.Application.Json)
-                    apiKey?.let { headers { append("Authorization", "Bearer $it") } }
+                    bearer(apiKey)
                     setBody(request.copy(stream = false))
                 }
                 when (response.status.value) {
@@ -179,7 +206,7 @@ class OpenAiApiClient(
                         }
                         result
                     }
-                    401 -> throw ApiException.Unauthorized()
+                    401 -> throw unauthorizedFor(response)
                     429 -> {
                         val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
                         throw ApiException.RateLimited(retryAfter)
@@ -212,15 +239,15 @@ class OpenAiApiClient(
     ): Flow<ChatCompletionChunk> = channelFlow {
         val client = createClient(timeoutSeconds)
         try {
-            val statement = client.preparePost("${baseUrl.trimEnd('/')}/v1/chat/completions") {
+            val statement = client.preparePost("${baseUrl.openAiBaseUrl()}/v1/chat/completions") {
                 contentType(ContentType.Application.Json)
-                apiKey?.let { headers { append("Authorization", "Bearer $it") } }
+                bearer(apiKey)
                 setBody(json.encodeToString(ChatCompletionRequest.serializer(), request.copy(stream = true)))
             }
             statement.execute { response ->
                 when (response.status.value) {
                     in 200..299 -> { /* proceed to parse SSE stream */ }
-                    401 -> throw ApiException.Unauthorized()
+                    401 -> throw unauthorizedFor(response)
                     429 -> {
                         val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
                         throw ApiException.RateLimited(retryAfter)
