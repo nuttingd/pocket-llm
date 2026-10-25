@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name="dev.nutting.pocketllm.sd.SdEngineService"
+            android:exported="false"
+            android:process=":sd"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "pocket-llm"
 include(":app")
 include(":llm")
+include(":sd")
