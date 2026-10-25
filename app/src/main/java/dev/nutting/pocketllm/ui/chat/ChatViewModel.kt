@@ -23,6 +23,8 @@ import dev.nutting.pocketllm.data.local.model.LocalModelStore
 import dev.nutting.pocketllm.data.remote.ApiException
 import dev.nutting.pocketllm.data.remote.image.imageJson
 import dev.nutting.pocketllm.data.remote.model.ModelInfo
+import dev.nutting.pocketllm.data.remote.model.chatModels
+import dev.nutting.pocketllm.data.remote.model.imageModels
 import dev.nutting.pocketllm.data.repository.ConversationRepository
 import dev.nutting.pocketllm.data.repository.MessageRepository
 import dev.nutting.pocketllm.data.repository.ServerRepository
@@ -251,7 +253,7 @@ class ChatViewModel(
             _uiState.update { it.copy(selectedServer = server, isLoadingModels = true) }
 
             try {
-                val models = serverRepository.fetchModels(serverId)
+                val models = serverRepository.fetchModels(serverId).chatModels()
                 val globalModelId = preferredModelId
                     ?: settingsRepository.getLastActiveModelId().first().takeIf { it.isNotBlank() }
                 val selectedModel = if (globalModelId != null && models.any { it.id == globalModelId }) {
@@ -413,7 +415,7 @@ class ChatViewModel(
                         listOf(info.capabilities?.model?.name ?: ImageJobLauncher.SD_CPP_MODEL)
                     } else {
                         try {
-                            serverRepository.fetchModels(server.id).map { it.id }
+                            serverRepository.fetchModels(server.id).imageModels().map { it.id }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -793,7 +795,7 @@ class ChatViewModel(
             _uiState.update { it.copy(selectedServer = server, availableModels = emptyList(), selectedModelId = null, isLoadingModels = true) }
             settingsRepository.setLastActiveServerId(serverId)
             try {
-                val models = serverRepository.fetchModels(serverId)
+                val models = serverRepository.fetchModels(serverId).chatModels()
                 _uiState.update {
                     it.copy(availableModels = models, selectedModelId = models.firstOrNull()?.id, isLoadingModels = false)
                 }
