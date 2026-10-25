@@ -13,6 +13,9 @@ class PocketLlmApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The :sd process runs only the diffusion engine. Building the app container there would open the
+        // database and download manager twice and waste memory on a process that needs neither.
+        if (applicationInfo.processName?.endsWith(":sd") == true) return
         container = AppContainer(this)
         sweepOrphanedImages()
         resumeImageJobs()

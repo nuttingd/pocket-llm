@@ -88,6 +88,7 @@ dependencies {
 
     // Local LLM module
     implementation(project(":llm"))
+    implementation(project(":sd"))
 
     // Core Android
     implementation("androidx.core:core-ktx:1.17.0")

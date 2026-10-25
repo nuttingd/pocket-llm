@@ -17,3 +17,6 @@ keystore.properties
 node_modules/
 gradle/gradle-daemon-jvm.properties
 .kotlin/
+/sd/build
+/sd/.cxx
+/.pi
