@@ -69,8 +69,10 @@ internal fun defaultImageHttpClient(): HttpClient = imageHttpClient(OkHttp.creat
 internal const val CONNECT_TIMEOUT_MS = 15_000L
 internal const val DEFAULT_SOCKET_TIMEOUT_MS = 60_000L
 
+/** Sends the key as a Bearer token, trimming it first (a pasted trailing space/newline breaks the header). */
 internal fun HttpRequestBuilder.bearer(apiKey: String?) {
-    if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey")
+    val key = apiKey?.trim()?.takeIf { it.isNotEmpty() } ?: return
+    header("Authorization", "Bearer $key")
 }
 
 internal fun String.trimBaseUrl() = trimEnd('/')
@@ -88,9 +90,11 @@ internal fun decodeImageBase64(data: String): ByteArray {
 }
 
 /** Maps a non-2xx response to an [ImageApiException], extracting the server's message from whatever error shape it uses. */
-internal suspend fun HttpResponse.toImageApiException(): ImageApiException {
-    val code = status.value
-    val body = runCatching { bodyAsText() }.getOrDefault("")
+internal suspend fun HttpResponse.toImageApiException(): ImageApiException =
+    imageApiExceptionFor(status.value, runCatching { bodyAsText() }.getOrDefault(""))
+
+/** Maps a non-2xx status and its body to an [ImageApiException], for callers that already read the body. */
+internal fun imageApiExceptionFor(code: Int, body: String): ImageApiException {
     val detail = errorDetail(body)
     val serverCode = detail.code
     val serverMessage = detail.message
@@ -104,6 +108,19 @@ internal suspend fun HttpResponse.toImageApiException(): ImageApiException {
         code in 400..499 -> ImageApiException(ImageApiException.Kind.REJECTED, serverMessage ?: "The server rejected the request ($code).", code)
         else -> ImageApiException(ImageApiException.Kind.SERVER, serverMessage?.let { "Server error ($code): $it" } ?: "Server error ($code).", code)
     }
+}
+
+/**
+ * Whether a 401/403 came from something in front of the server (an auth proxy, tunnel, or login page)
+ * rather than from the server itself. Those responses carry no server error detail: an empty body, `{}`,
+ * or HTML. A proxy rejecting the request is not the same as a model server rejecting the API key.
+ */
+internal fun isProxiedAuthResponse(code: Int, body: String): Boolean {
+    if (code != 401 && code != 403) return false
+    val trimmed = body.trim()
+    if (trimmed.isEmpty() || trimmed.startsWith("<")) return true
+    val error = errorDetail(trimmed)
+    return error.message == null && error.code == null
 }
 
 internal data class ErrorDetail(val message: String?, val code: String?)

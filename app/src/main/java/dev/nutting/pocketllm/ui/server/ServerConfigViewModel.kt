@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.nutting.pocketllm.data.local.entity.ServerKind
 import dev.nutting.pocketllm.data.local.entity.ServerProfileEntity
+import dev.nutting.pocketllm.data.remote.model.imageModels
 import dev.nutting.pocketllm.data.repository.ServerRepository
 import dev.nutting.pocketllm.data.repository.SettingsRepository
 import dev.nutting.pocketllm.domain.image.ImageServerDetector
@@ -117,7 +118,7 @@ class ServerConfigViewModel(
             }
             // Models double as image model suggestions for OpenAI-compatible image servers
             val models = if (detection is Detection.Found) {
-                runCatching { serverRepository.fetchModelsAt(baseUrl, apiKey).map { it.id } }
+                runCatching { serverRepository.fetchModelsAt(baseUrl, apiKey).imageModels().map { it.id } }
                     .onFailure { Log.w(TAG, "Couldn't list models at $baseUrl", it) }
                     .getOrDefault(emptyList())
             } else {

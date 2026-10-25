@@ -1,6 +1,8 @@
 package dev.nutting.pocketllm.data.remote.image
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImageHttpTest {
@@ -16,6 +18,16 @@ class ImageHttpTest {
         assertEquals(ErrorDetail("upstream timeout", null), errorDetail("upstream timeout"))
         assertEquals(ErrorDetail(null, null), errorDetail(""))
         assertEquals(ErrorDetail(null, null), errorDetail("x".repeat(600)))
+    }
+
+    @Test
+    fun `given an auth response then only one without server detail counts as a proxy rejection`() {
+        assertTrue(isProxiedAuthResponse(401, ""))
+        assertTrue(isProxiedAuthResponse(401, "{}"))
+        assertTrue(isProxiedAuthResponse(403, "<html>sign in</html>"))
+        assertFalse(isProxiedAuthResponse(401, """{"error":"invalid api key"}"""))
+        assertFalse(isProxiedAuthResponse(401, "unauthorized"))
+        assertFalse(isProxiedAuthResponse(500, ""))
     }
 
     @Test
