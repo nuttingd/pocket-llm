@@ -80,6 +80,27 @@ class SdCppImageClientTest {
     }
 
     @Test
+    fun `given an auth proxy in front of the host when probed then it is not treated as an sd-server`() = runTest {
+        // A gateway that answers before sd-server does: `{}`, an empty body, or a login page carries no
+        // server error, so this is "not an sd-server", not "the API key is wrong"
+        assertNull(client { json("{}", HttpStatusCode.Unauthorized) }.probe("https://litellm.example", "key"))
+        assertNull(client { respond("", HttpStatusCode.Unauthorized) }.probe("http://gateway:4000", "key"))
+        assertNull(
+            client { respond("<html>log in</html>", HttpStatusCode.Forbidden, headersOf(HttpHeaders.ContentType, "text/html")) }
+                .probe("http://gateway:4000", "key"),
+        )
+    }
+
+    @Test
+    fun `given an sd-server rejecting the key when probed then the auth failure is raised`() = runTest {
+        val result = runCatching {
+            client { json("""{"error":"invalid api key"}""", HttpStatusCode.Unauthorized) }.probe("http://sd:8080", "wrong")
+        }
+
+        assertEquals(ImageApiException.Kind.UNAUTHORIZED, (result.exceptionOrNull() as ImageApiException).kind)
+    }
+
+    @Test
     fun `given a job request when submitted then it posts the native body and returns the job id`() = runTest {
         val client = client { json("""{"id":"job_1","kind":"img_gen","status":"queued","created":1,"poll_url":"/sdcpp/v1/jobs/job_1"}""", HttpStatusCode.Accepted) }
         val request = SdCppImgGenRequest(prompt = "a fox", width = 1024, height = 768, seed = 7, refImages = listOf("data:image/jpeg;base64,AAAA"))

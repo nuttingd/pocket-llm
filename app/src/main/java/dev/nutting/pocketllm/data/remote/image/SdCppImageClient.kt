@@ -7,6 +7,7 @@ import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
@@ -38,6 +39,13 @@ class SdCppImageClient(
                 capabilities?.takeIf { it.supportsImgGen() }
             }
             404, 405 -> null
+            // An auth proxy in front of the host (empty body, `{}`, or a login page) rejects /sdcpp/*
+            // before sd-server sees it: that's "not an sd-server we can talk to", not a bad API key.
+            401, 403 -> {
+                val body = runCatching { response.bodyAsText() }.getOrDefault("")
+                if (isProxiedAuthResponse(response.status.value, body)) null
+                else throw imageApiExceptionFor(response.status.value, body)
+            }
             else -> throw response.toImageApiException()
         }
     }
